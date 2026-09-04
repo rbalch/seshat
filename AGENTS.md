@@ -1,8 +1,11 @@
 # seshat — agent contract
 
-<!-- TODO: one paragraph. What this project is, and the one sentence that explains
-     why it is built the way it is. An agent reading only this file should know what
-     it is working on. -->
+Seshat surveys a codebase it did not write and stores what it learns as a **ledger of
+verified claims**: one falsifiable sentence per row, each paired with executable Python
+that re-checks it against the code graph. It is built this way because a prose summary
+of code cannot be falsified and cannot rot loudly — a claim with a verifier does both,
+so the same rows that answer "what does this do" also detect drift on the next run
+without a full rescan.
 
 This repo runs a ledger governance harness: architectural rules live as decisions,
 each decision is backed by an executable control, and CI fails on drift. Read
@@ -122,40 +125,110 @@ change was made.
 
 ## Architectural shape
 
-<!-- TODO: the diagram or the two paragraphs that explain how this system is put
-     together, and which seams the controls exist to guard. An agent that does not
-     understand the shape will violate it confidently. Replace the example below. -->
+```
+                      target repo
+                 .codegraph/  .seshat/ledger.db
+                          ▲          ▲
+        codegraph MCP ────┘          │ typed tool methods only
+        (worker reads)               │
+                                     │
+  orchestrator ──▶ worker ──▶ verifier author ──▶ reflection ──▶ answer
+  plain Python     CodeAct     Predict            Predict        CodeAct
+   no model        model       model              model          model
+        │                          │                   │            │
+        └────────── graph helper API (the one way to read the graph) ┘
+```
 
-```
-<layer A>  ──▶  <layer B>  ──▶  <layer C>
-```
+Two rules of shape carry the design. **Everything above the helper API talks to the code
+graph through it, never through codegraph's own tables** — node ids there hash line
+numbers and churn on any edit, so identity is `(file_path, qualified_name)` and the
+backend stays swappable. **Only a passing verifier promotes anything into the ledger**;
+conjectures, doc seeds and dead ends live in NOOA working memory, which decays, and the
+ledger, which never does, holds nothing that has not been checked.
+
+The model is used at exactly four generation points — worker, verifier author,
+reflection, answer. Orchestration, the queue, the budget and every write to SQLite are
+deterministic Python. That split is the experiment, not an implementation detail: if a
+model creeps into the orchestration, the run stops being measurable.
 
 ## Always
 
-<!-- TODO: the shape of the design, for orientation. Never a restatement of a DEC-N
-     rule — point at the view instead. Delete these examples. -->
-
-- Keep the dependency direction one way.
-- Put secrets behind the named abstraction, never in a repo file, a log line, or a
-  response payload.
+- Read the target's code graph through the graph helper API (`plan.md` §6). Verifiers
+  import nothing else.
+- Store a claim as one falsifiable sentence with a verifier and a status. A summary is
+  the rendered set of confirmed claims, never a stored paragraph.
+- Ask for a verifier that checks from a *different* angle than the claim was derived
+  from — callers rather than the body. A check that re-queries its own source proves
+  nothing.
+- Keep every row stamped with `repo_id` and the `run_id` that wrote it, so a future
+  fleet store is a union of per-repo files.
+- Cite claim id, qualified name, file path, line span, `verified_sha`, and the
+  verifier's last status. A stale citation says so inline.
+- Keep the ledger inside the target repo at `.seshat/ledger.db`, gitignored, beside
+  `.codegraph/`.
 
 ## Never
 
-<!-- TODO: negative space is first-class. What must this project never do? -->
-
 - Never hand-edit a generated file (`governance/views/**`, `governance/registry.json`).
 - Never edit a control to make a failing change pass.
+- Never write a claim into the ledger before its verifier passes. A refuted claim is
+  recorded as refuted and kept; it is evidence about where the model misreads code.
+- Never run the target's own code. Phase one is structural verifiers only; the
+  `behavioral` kind is reserved for a later agent with a sandbox and a timeout.
+- Never let the answer agent cite working memory, or write a sentence with no citation.
+  Nothing found means say so.
+- Never emit a governance rule. Seshat sets `candidate_rule` and counts sightings; a
+  human and the rule-of-three decide what becomes a decision.
+- Never store prose where a claim belongs, and never let a README statement into the
+  ledger unverified — it is a hypothesis with `source='readme'` until a verifier passes.
 
 ## Working context (keep this current)
 
-<!-- TODO: this is the section that earns this file's existence — the background an
-     agent cannot derive from the code. Why this project exists, what was tried and
-     rejected, prior art being followed, the stack, known risks, what is out of scope,
-     who the audience is, and what is being worked on right now. Convert relative dates
-     to absolute. Delete a line the moment it stops being true; a stale working-context
-     section is worse than an empty one. -->
+**Why it exists.** Two questions at work: a search index that answers "has anyone sorted
+a list from third-party API X anywhere in our repos" by intent rather than tokens, and a
+substrate an agent can rely on when modifying an unfamiliar repo. Both need a
+description of a codebase that can be trusted and can announce when it rots. Chunk-and-
+embed gives neither.
 
-**Current work:** <!-- TODO -->
+**The reframe that shaped everything.** A game is a black box learned by blind probing;
+code is a glass box — the rule is in the source. So the loop is roughly one round per
+unit: read → conjecture → one check → persist. The prediction step earns its keep as a
+forcing function, not as forecasting: a summary that survived falsification captured the
+contract, a summarize-each-file pass captured surface.
+
+**Prior art.** NVIDIA NOOA (agent = one Python class, `...` body = generation point,
+methods with bodies are tools for free). CyberGym is the template shape: one durable
+accumulator, a few generation points, ~85% hand-written orchestration. `nooa-research.md`
+has the reading order and the honest caveats about the vendor benchmarks.
+
+**Stack.** Python 3.13, `uv`, `nooa[cli,viewer]`, SQLite. Codegraph MCP is
+`@colbymchenry/codegraph`; set `CODEGRAPH_TELEMETRY=0`. Model is
+`hosted_vllm/qwen3.8-27b` on a DGX Spark via vLLM at `LLM_HOST`, thinking on by default,
+model string per role in config so any one role can move to a frontier model.
+
+**Rejected.** NOOA memory as the ledger — its decay is recency × recall count, so a true
+claim nobody asks about starts fading, which is exactly the row a drift scan needs a year
+later. A reviewer agent — the verifier is the reviewer, one retry then refuted. Emitting
+ADRs — the map is descriptive, decisions are prescriptive.
+
+**Known risks.** A 27B model writing bad verifiers (the refuted rows measure this). A
+verifier that restates its own claim and proves nothing. Hallucinated candidate rules
+flooding the ledger. Codegraph gaps — Python decorators came back empty, external calls
+sit in `unresolved_refs`, so decorator claims need an `ast` fallback before they can be
+verified. If workers flail at CodeAct on a 27B model that is a finding about the
+capability ladder, not a bug; `PurePythonStrategy` is the fallback.
+
+**Out of scope for phase one.** Vectors, fleet-wide merge, languages other than Python,
+running target code, the prose-notes ablation arm (rows carry a `mode` tag for it).
+
+**Audience.** Ryan, dogfooding. First target is `~/code/labs-OO-Agents`; the phase-one
+bar is the five acceptance questions in `plan.md` §9, answered with citations, then an
+edit and a rescan where `seshat drift` names exactly the rotted rows.
+
+**Current work (2026-09-04).** Plan and decision log written to `docs/specs/docs/`;
+nothing implemented yet — `src/seshat/` is an empty package. Build order: ledger schema →
+graph helper API → one worker turn on one unit → queue and budget → reflection → CLI →
+`ask`. A two-tool CodeAct smoke test against the Spark comes before any of it.
 
 ## Commands
 

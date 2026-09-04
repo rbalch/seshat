@@ -4,7 +4,10 @@ version = "0.1.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "mcp[cli]>=2.1.1",
+    "nooa[cli,viewer]>=0.0.10",
+]
 
 [dependency-groups]
 dev = [
@@ -31,6 +34,13 @@ extend-select = [
   "I",   # import sorting
   "RUF", # ruff's own correctness rules
   "UP",  # pyupgrade
+]
+ignore = [
+  # NOOA reads a `...` method body as a generation point: the model implements the
+  # method at call time. PIE790 sees only a docstring plus a redundant placeholder and
+  # deletes it, which silently turns the agent method into a no-op returning None.
+  # See nooa/ellipsis_detection.py:has_ellipsis_body.
+  "PIE790",
 ]
 
 [tool.ruff.format]

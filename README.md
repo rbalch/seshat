@@ -1,6 +1,21 @@
 # seshat
 
-<!-- TODO: one paragraph on what this is. -->
+<img src="docs/images/seshat-logo.jpg" alt="Seshat" align="right" width="220">
+
+Seshat surveys a codebase you did not write and produces a **ledger of verified claims**
+about it. A claim is one falsifiable sentence — "`Executor.run` never spawns a
+subprocess" — paired with executable Python that re-checks it against the code graph.
+Claims that pass are rolled up into concepts with citations down to file and line;
+claims that fail are kept too, because a model misreading code is data. Because every
+claim carries its own check, a later run detects drift without rescanning the repo, and
+`seshat ask` answers questions from the ledger with a citation on every sentence.
+
+The name is the Egyptian goddess of measurement and record keeping, who stretched the
+cord to survey a plot before anything was built on it.
+
+Read [`docs/specs/docs/plan.md`](docs/specs/docs/plan.md) for the phase-one design,
+[`decisions.md`](docs/specs/docs/decisions.md) for every settled question, and
+[`nooa-research.md`](docs/specs/docs/nooa-research.md) for the background.
 
 ## Development
 
