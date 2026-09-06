@@ -2,7 +2,7 @@
 id: T-02
 plan: seshat-phase-one
 title: Package skeleton, console script, role config
-status: in_review
+status: done
 depends_on: []
 files:
   - pyproject.toml
