@@ -53,7 +53,7 @@ behind it, so the backend can change without touching ledger rows.
   - `callers(<the function called from two files>)` returns two nodes in two
     different files;
   - `callees('OrderRepository.get')` includes the method it calls;
-  - `subclasses('Order')` includes `SpecialOrder`;
+  - `subclasses('OrderRepository')` includes `SpecialOrder`;
   - `decorators(<lru_cache function>)` returns a list containing `lru_cache`
     (via the ast fallback, since codegraph returns none);
   - `external_refs(<function using json.dumps>)` contains a string with `dumps`;

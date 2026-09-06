@@ -49,7 +49,7 @@ to a confirmed claim, so it is the reviewer of the whole system.
 ## Acceptance
 
 - `uv run pytest tests/test_verify.py -q` → exit 0, against `fixture_target`, covers:
-  - a verifier calling `graph.subclasses('Order')` with matching expected → `pass`;
+  - a verifier calling `graph.subclasses('OrderRepository')` with matching expected → `pass`;
   - same verifier with wrong expected → `fail` and `actual` shows the real list;
   - source without `check` → `error`;
   - source with `import os` → `error` and `os` never executes (assert message
