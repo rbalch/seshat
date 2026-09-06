@@ -10,6 +10,9 @@ dependencies = [
     "nooa[cli,mcp,memory,viewer]>=0.0.10",
 ]
 
+[project.scripts]
+seshat = "seshat.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.4.0",
@@ -65,3 +68,6 @@ testpaths = ["tests"]
 pythonpath = ["src", "governance/scripts"]
 addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
+markers = [
+    "integration: needs LLM_HOST and a live model",
+]
