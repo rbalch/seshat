@@ -27,7 +27,42 @@ and forcing a harness observation into one loses what makes it interesting.
 
 ## Findings
 
-_None yet. The first one arrives the first time you dislike something an agent did._
+### F-1 — planner named a symbol the fixture never defines
+
+- **Date:** 2026-09-06
+- **Task:** T-01 (found while reviewing its output, but the fault is in T-04 and T-05)
+- **Bin:** 2
+- **Claim:** Every symbol named in a task's acceptance criteria exists in the fixture or
+  code that task depends on. T-04 and T-05 both asserted on `subclasses('Order')`; the
+  fixture defines `SpecialOrder(OrderRepository)` and no `Order` class at all.
+- **Sightings:** 1
+- **Action:** soft — task files corrected on develop in 6956b65, no control
+- **Notes:** Checkable in principle: a script could parse the acceptance blocks for
+  quoted identifiers and grep the fixture for them. Worth doing only if this recurs,
+  since the cost of the error was one orchestrator inspection and a two-line sed.
+  Caught before T-04 was dispatched; had it landed, a builder would have written a test
+  against a class that does not exist and burned a review round proving it.
+
+### F-2 — harness: two reviewers sharing one worktree contaminated each other
+
+- **Date:** 2026-09-06
+- **Task:** T-01
+- **Bin:** unbinned harness finding
+- **Claim:** The orchestrate skill dispatches boundary-reviewer and reviewer into the
+  same builder worktree. Both were told to verify by execution rather than by reading,
+  and both did so by planting a deliberate defect and reverting it. Run concurrently,
+  each saw the other's plant. The code reviewer reported a transient stray function in
+  `demo/errors.py` and a momentarily detached HEAD, correctly guessed it was not a real
+  defect, and dismissed it.
+- **Sightings:** 1
+- **Action:** soft — noted. The orchestrator verified the worktree was clean before
+  squashing, and it was.
+- **Notes:** The dismissal happened to be right, which is the worrying part. A reviewer
+  that learns to attribute anomalies to its own tooling is a reviewer that will one day
+  wave through a real one. Two cheap fixes exist: run the reviewers in sequence, or give
+  each its own checkout of the branch. Sequential costs wall-clock on every task;
+  separate checkouts cost disk. Neither is obviously right yet, so this is a note, not a
+  change. Watch for a second sighting where the dismissal is wrong.
 
 <!--
 ### F-1 — <one-line description>
