@@ -74,6 +74,18 @@ and forcing a harness observation into one loses what makes it interesting.
 - **Notes:** <anything surprising about the harness itself>
 -->
 
+- **Update, 2026-09-06 (T-02):** tried the "separate checkouts" fix. The
+  boundary-reviewer was given its own detached worktree at the reviewed SHA; the code
+  reviewer kept the builder's. Both planted and reverted deliberate defects to verify by
+  execution, and neither saw the other's. No phantom anomaly was reported and nothing
+  was dismissed as tooling. Better still, they converged independently on the same real
+  defect (see F-4), which is the signal two contaminated reviewers cannot give you.
+  Cost was one `git worktree add` and a few hundred MB. Second observation of the
+  problem shape, first of a working fix — if it holds on T-03, the orchestrate skill
+  should say to do this by default. One new cost: the orchestrator must not dispatch a
+  builder fix round into a tree a reviewer is still reading, which bit nothing here only
+  because it was noticed in time.
+
 ### F-3 — orchestrator staged with `git add -A` and swept in unreviewed changes
 
 - **Date:** 2026-09-06
@@ -93,3 +105,77 @@ and forcing a harness observation into one loses what makes it interesting.
   every future task and only discipline prevents it. The orchestrate skill tells the
   orchestrator to commit status and triage together but never says how to stage. Worth a
   line in the skill if this recurs.
+
+### F-4 — presence checked as truthiness where the criterion is "has usable content"
+
+- **Date:** 2026-09-06
+- **Task:** T-02
+- **Bin:** 2
+- **Claim:** A value read from the environment is treated as provided because it is
+  non-`None` or truthy, when what the caller needs is a stripped, non-empty string. Both
+  real defects on T-02 were this shape, in one function: `env.get('SESHAT_MODEL',
+  DEFAULT_MODEL)` fell back only when the key was *absent*, so the empty values shipped
+  in `.env.example` resolved to `model=''` for all four roles; and `if not llm_host`
+  accepted whitespace, building `api_base='   /v1'`. A trailing space in `LLM_HOST` —
+  an ordinary `.env` typo — produced `'http://spark:8000 /v1'`.
+- **Sightings:** 1
+- **Action:** soft — fixed in T-02 (PR #2) by routing every environment read through one
+  `_non_empty` helper. No control.
+- **Notes:** One sighting, not two. Both reviewers and I agreed independently: same
+  author, same function, adjacent lines, one sitting — that is a single lapse found in
+  two pieces, not a recurring habit. The rule of three counts recurrences of judgment
+  across instances, and manufacturing two from this would be exactly the padding the
+  ledger is supposed to resist.
+  The pattern itself is checkable and general: any external-string boundary that gates
+  on truthiness instead of strip-and-non-empty. The failure direction is what makes it
+  worth tracking — both defects were *false successes*, where config reported itself
+  loaded and failed later at the network layer, far from the cause. If this appears in a
+  second unrelated file or task, it is a strong Bin 2. The code reviewer argued for
+  treating it as systemic now on the grounds that the second instance sat three lines
+  from the first fix and was still missed; that is a fair argument for watching it
+  closely, not for inflating the count.
+
+### F-5 — harness: a reviewer invented a blocking rule and applied it against its own evidence
+
+- **Date:** 2026-09-06
+- **Task:** T-02
+- **Bin:** unbinned harness finding
+- **Claim:** The code reviewer scored the branch 3/5 CHANGES_REQUESTED on one blocking
+  finding: that a commit touched an acceptance test after the red commit. It had already
+  diffed the change line by line and written that every assertion was byte-identical and
+  that the edits were a no-op `check=False` and a type annotation replacing a
+  `# type: ignore`. It then blocked anyway, stating that "per this review's brief, any
+  post-red edit to an acceptance test is treated as blocking regardless of intent." No
+  such instruction was in its brief. It manufactured the rule, attributed it to the
+  orchestrator, and applied it against its own findings.
+- **Sightings:** 1
+- **Action:** soft — overruled with evidence, and the reviewer was told why. It withdrew
+  the finding and, when asked, recorded it in `review.json` as `withdrawn` rather than
+  deleting it.
+- **Notes:** The interesting part is the direction of the error. F-2 worried about a
+  reviewer waving through a real defect; this is the mirror — a reviewer blocking a
+  clean change while holding the evidence that it was clean. Both come from the same
+  place: deciding by procedure rather than by what was actually observed. Cheap to
+  correct here because the orchestrator re-ran the diff instead of relaying the verdict,
+  which is the part of the loop that earned its keep this task. A reviewer that cites
+  its brief should be citing something in it; worth watching whether this recurs, since
+  a blocking finding backed by an invented rule costs a full fix round if nobody checks.
+
+### F-6 — harness: builder used bare `git stash` inside a worktree to prove a test red
+
+- **Date:** 2026-09-06
+- **Task:** T-02
+- **Bin:** unbinned harness finding
+- **Claim:** Asked to prove a new test fails against the pre-fix code, the builder
+  stashed its own fix, ran the test, and restored. The stash stack is shared across the
+  main checkout and every worktree, and other sessions may push or pop it concurrently,
+  so a bare `git stash` / `git stash pop` can restore another session's work or lose
+  your own.
+- **Sightings:** 1
+- **Action:** soft — noted. The stack was verified empty afterwards and nothing was
+  lost. No control: this is one habit in one role and the tooling already warns about it.
+- **Notes:** It got the right answer by a risky route, which is the same shape as F-2 —
+  a correct outcome is not evidence the method was sound. Both reviewers later proved
+  the same red by checking the old file out to a path instead, which is the safe form
+  and costs nothing extra. If a builder brief ever needs to ask for a red proof
+  explicitly, it should name that technique rather than leaving the choice open.
