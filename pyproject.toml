@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "mcp[cli]>=2.1.1",
-    "nooa[cli,viewer]>=0.0.10",
+    "nooa-memory>=0.0.10",
+    "nooa[cli,mcp,memory,viewer]>=0.0.10",
 ]
 
 [dependency-groups]
