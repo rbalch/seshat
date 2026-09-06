@@ -28,6 +28,10 @@ packages = ["src/seshat"]
 [tool.ruff]
 line-length = 120
 src = ["src", "tests", "controls", "governance"]
+# tests/fixtures/ is committed test data (a hand-written probe repo whose
+# .codegraph/codegraph.db line spans must stay in sync with its source), not project
+# source. Lint/format must never rewrite it.
+extend-exclude = ["tests/fixtures/"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -51,6 +55,10 @@ quote-style = "single"
 # The governance scripts are executables, not an installed package, so ty needs the
 # same search path pytest gets from `pythonpath` below.
 extra-paths = ["governance/scripts"]
+
+[tool.ty.src]
+# tests/fixtures/ is committed test data; see the ruff exclude above.
+exclude = ["tests/fixtures/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
