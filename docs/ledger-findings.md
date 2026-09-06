@@ -73,3 +73,23 @@ and forcing a harness observation into one loses what makes it interesting.
 - **Action:** soft — noted, no control yet
 - **Notes:** <anything surprising about the harness itself>
 -->
+
+### F-3 — orchestrator staged with `git add -A` and swept in unreviewed changes
+
+- **Date:** 2026-09-06
+- **Task:** T-01
+- **Bin:** 2
+- **Claim:** A commit stages named paths. `git add -A` in a repo that hosts agent
+  worktrees and a human's work-in-progress stages both. The T-01 triage commit picked up
+  `.claude/worktrees/agent-a7e1dd28cc50b605c` as a gitlink to an embedded repository,
+  and an unrelated `dev.Dockerfile` edit belonging to the human, then pushed both to
+  develop under the message "triage and status".
+- **Sightings:** 1
+- **Action:** soft — backed out in 172075d, `.claude/worktrees/` added to `.gitignore`.
+  No control: this is one habit in one role, and a control that inspected commit
+  contents for "things that look unrelated" would be guesswork.
+- **Notes:** The gitignore entry removes half the failure for good, which is the better
+  fix. The other half, sweeping up a human's uncommitted work, remains available on
+  every future task and only discipline prevents it. The orchestrate skill tells the
+  orchestrator to commit status and triage together but never says how to stage. Worth a
+  line in the skill if this recurs.
