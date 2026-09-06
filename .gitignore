@@ -65,3 +65,6 @@ target/
 # Build-loop review artifacts — per-round scratch, never committed
 review.md
 review.json
+
+# agent worktrees — orchestrate creates these; they are checkouts, not content
+.claude/worktrees/

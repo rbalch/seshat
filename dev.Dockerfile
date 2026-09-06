@@ -15,7 +15,6 @@ RUN apt update --yes --quiet && apt install --yes --quiet --no-install-recommend
     rsync \
     tmux \
     git \
-    git-lfs \
     sudo \
     vim \
     zsh \
@@ -123,9 +122,9 @@ ARG CODEX_VERSION=latest
 ARG PI_VERSION=latest
 RUN npm config set prefix "$HOME/.local" \
     && npm install -g \
-    "@colbymchenry/codegraph@${CODEGRAPH_VERSION}" \
-    "@openai/codex@${CODEX_VERSION}" \
-    "@earendil-works/pi-coding-agent@${PI_VERSION}"
+        "@colbymchenry/codegraph@${CODEGRAPH_VERSION}" \
+        "@openai/codex@${CODEX_VERSION}" \
+        "@earendil-works/pi-coding-agent@${PI_VERSION}"
 
 # oh-my-zsh + plugins
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
