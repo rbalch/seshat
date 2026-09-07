@@ -34,7 +34,7 @@ matches the session. Facts that shaped an answer are noted inline.
 | Q19 | Predictor-vs-prose ablation | Tag rows with `mode`; build the prose arm later. |
 | Q20 | Local model plumbing | vLLM on the Spark via `LLM_HOST`; thinking on by default, `--no-thinking` flag. Model string per role in config; all-local first. Fact: CodeAct needs native tool calling; `PurePythonStrategy` is the fallback. |
 | Q21 | Decay vs rule of three | Decay in `nooa-memory` is recency × recall count (Ebbinghaus), not evidence-based. Working memory decays; ledger never does. Promotion to ledger requires a passing verifier. |
-| Q22 | What a citation contains | Claim id, unit qualified name, file path, line span, verified sha, verifier last status. |
+| Q22 | What a citation contains | Claim id, unit qualified name, file path, line span, verified sha, the claim's own status (conjectured/confirmed/refuted/stale), and the verifier's last status (pass/fail/error). |
 | Q23 | Where the project lives | Fresh repo on GitHub, stamped with `new-project`. The existing scaffold was a playground. |
 | Q24 | Phase-one review surface | Read-only CLI subcommands plus a chat CLI. |
 

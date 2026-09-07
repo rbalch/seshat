@@ -162,8 +162,8 @@ model creeps into the orchestration, the run stops being measurable.
   nothing.
 - Keep every row stamped with `repo_id` and the `run_id` that wrote it, so a future
   fleet store is a union of per-repo files.
-- Cite claim id, qualified name, file path, line span, `verified_sha`, and the
-  verifier's last status. A stale citation says so inline.
+- Cite claim id, qualified name, file path, line span, `verified_sha`, the claim's
+  own status, and the verifier's last status. A stale citation says so inline.
 - Keep the ledger inside the target repo at `.seshat/ledger.db`, gitignored, beside
   `.codegraph/`.
 

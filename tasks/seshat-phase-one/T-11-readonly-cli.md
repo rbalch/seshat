@@ -70,7 +70,8 @@ the same line.
 
 - plan §4 citation definition, §7, §9 (the drift check is the acceptance for the
   whole phase). Decisions Q22, Q24, Q33. `AGENTS.md` Always: cite claim id,
-  qualified name, file path, span, sha, verifier status; stale says so inline.
+  qualified name, file path, span, sha, claim status, verifier status; stale says
+  so inline.
 - `cli.py` already has `main` from T-02; extend it.
 
 ## Manual QA
