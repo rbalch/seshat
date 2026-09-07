@@ -423,3 +423,15 @@ recorded here so they are not rediscovered later.
   the orchestrator did it from the ledger rather than from the skill, which is exactly
   the fragility the ledger is supposed to remove. **Still owed: one line in the
   orchestrate skill.**
+
+- **Update, 2026-09-07 (T-04): F-2 is closed.** The separate-checkout fix is now written
+  into the orchestrate skill's reviewer-dispatch section and into the "things that will
+  bite you" list in `AGENTS.md`, so it no longer depends on an orchestrator reading this
+  log first. Five sightings of the problem shape, three of the fix working, and the
+  condition set at the second sighting is finally discharged. No control, and none is
+  possible: this is a fact about how subagents are dispatched at runtime, which leaves
+  nothing in the repo for a script to inspect. Harness findings get written into the
+  procedure or they get forgotten — that is the whole repertoire.
+  Still open from the same family: **F-9**, the red-proof requirement for fix-round
+  regression tests, which has two sightings and the same one-line remedy, and is not yet
+  written anywhere.

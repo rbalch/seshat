@@ -16,7 +16,7 @@ ORCHESTRATOR (you, on develop, never inside a worktree)
   │
   │   ┌──────────────────────────── one task ─────────────────────────────────┐
   ├──▶│ builder (worktree)   codegraph init → acceptance tests RED → impl GREEN │
-  ├──▶│ boundary-reviewer    live rules + architectural seams, in that worktree │
+  ├──▶│ boundary-reviewer    live rules + seams, in its OWN detached checkout   │
   ├──▶│ reviewer             red-then-green proof, correctness, tests, shape    │
   └──◀│ findings → you judge → builder → re-review → APPROVE, score ≥ 4/5       │
       │ squash to one commit → push → PR to develop (or to the predecessor)    │
@@ -95,21 +95,43 @@ survives two fix rounds, the builder's evidence turns out false on re-verificati
 there are no forward commits after two attempts. Note the escalation and why. Drop back
 for the next routine round. The same rule applies to reviewers.
 
-## 2. Reviewer dispatch — two of them
+## 2. Reviewer dispatch — two of them, in two separate checkouts
 
-Both run after the builder returns, both **in the builder's worktree**. Neither subagent
-inherits that directory, so the brief must open with the absolute worktree path and the
-instruction to `cd` there before anything else. A reviewer that runs `make check` in the
-root checkout has reviewed the wrong tree.
+Both run after the builder returns. Neither subagent inherits the builder's directory,
+so every brief opens with an absolute path and the instruction to `cd` there before
+anything else. A reviewer that runs `make check` in the root checkout has reviewed the
+wrong tree.
 
-- **`subagent_type: boundary-reviewer`, `model: sonnet`** — every live rule in `RULES.md`
-  against the diff, citing `DEC-N`, plus the seams declared in `AGENTS.md`.
-- **`subagent_type: reviewer`, `model: sonnet`** — the red-then-green proof, correctness,
-  tests, contracts, failure directions, code shape. It owns `review.md` / `review.json`
-  in the worktree; both are gitignored.
+**The boundary reviewer gets its own checkout. This is not optional.** Before
+dispatching, create one at the reviewed SHA and point its brief there:
 
-Both briefs carry: the worktree path, the task file path, the acceptance-test commit
-SHA, and the range to review (`develop..HEAD` in the worktree).
+```bash
+git worktree add --detach <scratch>/t<NN>-boundary <reviewed-sha>
+```
+
+The code reviewer keeps the builder's worktree. Tell each that the other has its own
+tree and is not to be touched. On a fix round, move the detached checkout forward with
+`git checkout --detach <new-sha>` before re-dispatching, and remove it once the PR is
+open.
+
+The reason is that reviewers verify by execution, which means planting a deliberate
+defect and reverting it. Sharing one tree, each sees the other's plant and reports it as
+a real finding — or worse, correctly guesses it is the other reviewer's mess and
+dismisses it, which is a reviewer teaching itself to wave anomalies through. Two trees
+cost one command and some disk, and buy genuinely independent findings: on T-04 the two
+reviewers found two different real defects in the same file on the same round, and
+neither saw the other's experiments. `F-2` in `docs/ledger-findings.md` has the four
+sightings behind this.
+
+- **`subagent_type: boundary-reviewer`, `model: sonnet`**, in its own detached checkout —
+  every live rule in `RULES.md` against the diff, citing `DEC-N`, plus the seams declared
+  in `AGENTS.md`.
+- **`subagent_type: reviewer`, `model: sonnet`**, in the builder's worktree — the
+  red-then-green proof, correctness, tests, contracts, failure directions, code shape. It
+  owns `review.md` / `review.json` there; both are gitignored.
+
+Both briefs carry: that reviewer's own path, the task file path, the acceptance-test
+commit SHA, and the range to review (`develop..HEAD`).
 
 Both briefs must demand: verify by execution, not by reading; findings with severity,
 `file:line`, and a concrete failure scenario for anything called a bug; attention to

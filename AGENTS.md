@@ -116,8 +116,11 @@ change was made.
 - **Touched a decision? Run `make views`.** The view and `registry.json` are generated
   from `governance/decisions/`. A stale one fails the *next* task's gate for reasons
   that look unrelated to it.
-- **Reviewers start in the root checkout, not the worktree.** Every reviewer brief
-  opens with the worktree path. A gate run in the wrong tree reviews the wrong code.
+- **Reviewers start in the root checkout, not in a task's tree.** Every reviewer brief
+  opens with that reviewer's own absolute path. A gate run in the wrong tree reviews the
+  wrong code. The two reviewers get *different* trees — the boundary reviewer a detached
+  checkout of its own, the code reviewer the builder's — because both verify by planting
+  and reverting deliberate defects, and in one shared tree each sees the other's.
 - **Blocked by a rule is a valid, wanted outcome.** Say so and stop. Do not raise a
   threshold, delete a pragma, or reach for `# noqa`. Reporting it is the most useful
   thing you can do; working around it quietly corrupts the experiment and nobody finds
