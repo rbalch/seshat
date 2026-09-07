@@ -179,3 +179,125 @@ and forcing a harness observation into one loses what makes it interesting.
   the same red by checking the old file out to a path instead, which is the safe form
   and costs nothing extra. If a builder brief ever needs to ask for a red proof
   explicitly, it should name that technique rather than leaving the choice open.
+
+### F-7 — a method issuing two writes left the first one to be flushed by an unrelated commit
+
+- **Date:** 2026-09-06
+- **Task:** T-03
+- **Bin:** 2
+- **Claim:** Any store method that issues more than one write statement is wrapped in a
+  transaction that rolls back as a unit. `add_concept` inserted the `concepts` row, then
+  raised `IntegrityError` on the evidence insert; the concept row stayed in an open
+  transaction and was silently committed to disk by **the next unrelated call that
+  wrote anything**. Reopening the ledger showed a `current` concept holding one of its
+  two intended evidence rows. `mark_stale_for_units` had the same structural gap.
+- **Sightings:** 1
+- **Action:** soft — fixed in PR #3 with `with self.conn:` around both write blocks. No
+  control. The audit that found only two such methods out of eleven is the reason this
+  is not yet a pattern.
+- **Notes:** Checkable and mechanical: find methods with more than one write `execute`
+  not inside a transaction context manager. That is a real linter if it recurs, and
+  unusually cheap to write for this codebase because `Ledger` is by design the only
+  code that writes SQL.
+  The failure direction is what makes it worth tracking. The caller sees an exception
+  and concludes nothing was written; the ledger disagrees, later, silently. AGENTS.md's
+  standing rule is that nothing unchecked enters the ledger, and a concept with
+  truncated evidence is exactly that — but it arrives green, with the exception the
+  caller was shown as cover. Found by the code reviewer, not the builder, and not by
+  the gate.
+
+### F-8 — one contract restated in five files, drifted, and shipped a defect green
+
+- **Date:** 2026-09-06
+- **Task:** T-03
+- **Bin:** 2
+- **Claim:** A contract is stated in exactly one place and referenced by ID elsewhere.
+  What a citation contains was written out five times — decision Q22, `AGENTS.md`'s
+  "Always" list, plan §4's `Citation =` line, `T-03`'s Scope, and `T-11`'s Context —
+  and they had drifted apart. T-03's Scope fixed `Citation` at seven fields while its
+  own Context required "a stale citation says so inline", which seven fields cannot
+  express: `last_status` is the verifier's axis (`pass | fail | error`), staleness is
+  the claim's. The builder implemented Scope, the requirement in Context vanished
+  without anyone deciding to drop it, and `make check` went green.
+- **Sightings:** 1
+- **Action:** soft — all five statements reconciled inside PR #3, and `Citation` gained
+  a `claim_status` field by the human's ruling. No control.
+- **Notes:** This is the strongest Bin 2 candidate the project has produced so far, and
+  it indicts the harness rather than the builder. `AGENTS.md` already carries the rule
+  it violates — "One behavior, one decision. State a rule in exactly one decision and
+  reference its ID elsewhere. Never restate a rule in two places" — as prose with no
+  control behind it, which is precisely the configuration this repo exists to test.
+  Two forms of the same cause, logged once rather than twice: cross-file drift between
+  the five statements, and the intra-file contradiction between T-03's own Scope and
+  Context. Same contract, same sitting, one lapse in the planning of it. Counting them
+  separately would be the padding the ledger is meant to resist.
+  The consequence was not hypothetical. `T-11` already specified
+  `format_citation(c: Citation)` appending `[STALE]` "when the claim status is stale" —
+  a function receiving only a `Citation`, and therefore unimplementable against the
+  seven-field version. A downstream task had already assumed the field the upstream
+  task forbade, and nothing in the loop could see it. Had T-03 shipped as specified,
+  T-12 would have rendered rotted citations as fresh and T-11 would have hit a wall.
+  A checkable form exists and is worth writing at the second sighting: extract the
+  enumerated field list wherever the citation contract is stated and assert the sets
+  are equal. A general version — every contract stated once — is not machine-checkable
+  and should never be attempted.
+
+### F-9 — harness: fix-round regression tests have no red-proof requirement
+
+- **Date:** 2026-09-06
+- **Task:** T-03
+- **Bin:** unbinned harness finding
+- **Claim:** The harness demands acceptance tests be committed alone and watched
+  failing before implementation. It demands nothing of the kind for the regression
+  tests written during a fix round, and those are the tests guarding the subtlest bugs.
+  On this task the builder wrote a test for the F-7 half-write, then discovered it was
+  a **false pass**: `sqlite3.Connection.close()` discards an uncommitted transaction, so
+  a "raise → close → reopen" test stays green whether or not the bug exists. The real
+  reproduction needs an intervening unrelated commit on the same connection.
+- **Sightings:** 1
+- **Action:** soft — noted. Nothing to fix in this PR; the builder caught it unaided,
+  corrected the misleading comment, kept the weak test as documentation and wrote the
+  genuine guard. The code reviewer then verified both halves by execution: the weak
+  test passes against reverted buggy code, the strong one fails with `assert 1 == 0`.
+- **Notes:** The outcome was good and the procedure did not produce it. A builder
+  disciplined enough to distrust its own green tick is not a control, and the next one
+  may not be. This is the same shape as F-2 and F-6 — a correct result reached by a
+  route the harness does not require — and it is the third time that shape has appeared,
+  which is worth saying plainly even though harness findings are not binned and the
+  rule of three does not apply to them.
+  The cheap change is one line in the builder brief: a regression test for a fix must
+  be proven to fail against the unfixed code, by the same check-out-the-old-file route
+  the acceptance tests already use. That costs nothing and would have caught this
+  without relying on the builder noticing. Worth doing before the next fix round rather
+  than after a third sighting.
+
+### Planning notes from T-03
+
+Two things surfaced that are questions for the plan, not defects in the code, and are
+recorded here so they are not rediscovered later.
+
+- **`citation()` picks the newest verifier with `ORDER BY v.rowid DESC LIMIT 1`, and
+  nothing says that is correct.** The schema permits a claim to have more than one
+  verifier row and does not constrain which one a citation should report. No code
+  creates a second one today, so this is undefined rather than wrong — but `claims.retries`
+  exists and T-07's design is "one retry then refuted", so a second verifier row is
+  planned, not hypothetical. T-05 and T-07 should decide deliberately whether a retry
+  replaces a verifier or adds one, and what a citation reports when there are two.
+  Raised by the boundary reviewer, correctly classified by it as taste and out of scope.
+- **The acceptance criterion "returns all seven fields" was wrong**, and is the second
+  planning finding of this batch after F-1. Both were errors in task files rather than
+  in code, both were caught by review rather than by any gate, and both would have cost
+  a wasted build round had they landed. Planning defects are becoming the more common
+  kind here, which is worth watching: the loop is good at catching bad code and has no
+  stage that reads a task file critically before a builder is dispatched.
+
+- **Update, 2026-09-06 (T-03):** third outing for the separate-checkout fix from F-2,
+  and it held again. The boundary reviewer worked from its own detached worktree at the
+  reviewed SHA while the code reviewer kept the builder's; both planted and reverted
+  deliberate defects, including reverting the atomicity fix and deleting an FTS delete
+  trigger, and neither saw the other's. No phantom anomaly, nothing dismissed as
+  tooling. On the re-review round the same separation let both independently confirm
+  the same fixes without collaborating on the conclusion. Three sightings of the
+  problem shape, two of the fix working. **The orchestrate skill should now say to do
+  this by default** — that was the condition set at the second sighting, and it has been
+  met.

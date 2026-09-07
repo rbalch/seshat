@@ -2,7 +2,7 @@
 id: T-03
 plan: seshat-phase-one
 title: Ledger schema and typed store
-status: todo
+status: in_review
 depends_on: [T-02]
 files:
   - src/seshat/ledger/__init__.py
