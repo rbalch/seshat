@@ -301,3 +301,125 @@ recorded here so they are not rediscovered later.
   problem shape, two of the fix working. **The orchestrate skill should now say to do
   this by default** — that was the condition set at the second sighting, and it has been
   met.
+
+### F-10 — the seam answered wrongly and gave the caller no way to tell
+
+- **Date:** 2026-09-07
+- **Task:** T-04
+- **Bin:** 2
+- **Claim:** A method whose contract is "the distinct things matching X" returns
+  something else, and returns it in a shape indistinguishable from a correct answer.
+  Two mechanisms, both in `src/seshat/graph.py`, both found by review and neither
+  visible to a green `make check`:
+  - `callers`, `callees` and `subclasses` joined `edges` without `DISTINCT`. codegraph
+    records **one edge per call site**, so a caller invoking a target six times came
+    back as six identical `Node` objects. Not hypothetical: this repo's own index has
+    79 duplicate `(source, target, kind)` groups — `parse_decision → _require` appears
+    six times. Every verifier counting callers or subclasses would have been inflated.
+  - `decorators()` returned `[]` for **every decorated class**, because the `ast`
+    fallback's `_find_def` returned `None` when the name it was walking terminated on a
+    `ClassDef`. A decorated class got a confident "no decorators".
+- **Sightings:** 1 as stated here. **As the false-success family, 2** — see below.
+- **Action:** soft — both fixed in PR #4, each with a regression test proven red first
+  (`32c0cef`/`a842491`, `4676c8c`/`c61b039`). No control.
+- **Notes:** Logged once, not twice. Missing `DISTINCT` is a SQL habit and the unhandled
+  `ClassDef` is a control-flow omission — different mechanisms — but they are one author,
+  one file, one sitting, and the F-4 and F-8 precedents both say that is a single lapse
+  found in two pieces. Manufacturing two sightings from it is the padding this ledger
+  exists to resist.
+  What makes it worth tracking is the failure direction, which is the same one F-4
+  recorded: **a false success**. Both defects report work done that was not done, and
+  both stay silent. F-4's own note set the condition — "if this appears in a second
+  unrelated file or task, it is a strong Bin 2" — and this is that second appearance,
+  in a different file, a different task, a different author, and a different mechanism.
+  **The false-success family now stands at two sightings.** One more and it earns a
+  decision. What a control could actually check is narrower than the family: "every
+  query in the graph seam that joins `edges` and returns nodes uses `DISTINCT`" is
+  mechanically checkable and worth writing if it recurs. "Never return a confidently
+  wrong answer" is not, and must never be attempted.
+
+### F-11 — acceptance tests passed because the fixture cannot express the failure
+
+- **Date:** 2026-09-07
+- **Task:** T-04
+- **Bin:** 2
+- **Claim:** Acceptance tests are written against a fixture that does not contain the
+  shapes the contract must handle, so they pass vacuously and the suite's green says
+  nothing about the criterion. `tests/fixtures/target` has zero duplicate edges and no
+  decorated class. Both F-10 defects were therefore invisible to eleven acceptance
+  criteria, twelve passing tests and a green `make check`; both were found by a reviewer
+  reasoning about the contract, not by the gate.
+- **Sightings:** 1
+- **Action:** soft — regression tests now build a synthetic codegraph-schema database
+  under `tmp_path` rather than extending the committed fixture, which would have
+  invalidated its committed index. No control.
+- **Notes:** The third planning finding of this batch, after F-1 (a symbol the fixture
+  never defines) and T-03's "seven fields" criterion. The trend the T-03 notes flagged
+  is holding: **planning defects are now the most common kind here, and the loop still
+  has no stage that reads a task file critically before a builder is dispatched.** This
+  one is a sharper version of F-1 — there the fixture lacked a symbol the criteria named,
+  which fails loudly; here the fixture lacked a *shape* the criteria assumed, which
+  passes quietly. The second is much worse, because the reward for writing the test is
+  a green tick.
+  A checkable form is not obvious and I am not proposing one. "Every acceptance
+  criterion is exercised by fixture data that could falsify it" is mutation testing,
+  which is a real technique and a disproportionate answer to three findings. The cheaper
+  answer, if this recurs: when a task's criteria depend on a property of the fixture
+  (a duplicate edge, a decorated class, two callers), the task file names that property
+  explicitly so a builder can check it exists before writing the assertion.
+
+### F-12 — harness: a subagent read the session's own tool-routing instruction as an attack
+
+- **Date:** 2026-09-07
+- **Task:** T-04
+- **Bin:** unbinned harness finding
+- **Claim:** Mid-build, the builder received the session-level `system-reminder`
+  instructing that file reads and edits be routed through Bash rather than the
+  Read/Edit/Write tools. It refused, and reported it to the orchestrator as a suspected
+  injection: "looked like an attempt to get file mutations done through less-inspectable
+  shell commands." The instruction was a legitimate harness setting from the human's own
+  configuration, inherited by the subagent.
+- **Action:** soft — noted. No harm done; the builder's chosen tools were fine and the
+  work was unaffected.
+- **Notes:** The refusal was the right instinct applied to the wrong object, and the
+  instinct is worth more than the false positive — a builder that ignores an
+  unexplained instruction to move file mutation into the shell is behaving correctly,
+  and I would rather field this report than not. The real observation is about
+  inheritance: session-level directives reach subagents stripped of the context that
+  makes them legible, and a subagent has no way to distinguish "the human configured
+  this" from "something injected this mid-run." It cost one paragraph here; on a
+  security-sensitive change it could cost a whole build round, or worse, teach a builder
+  that unexplained instructions are safe to dismiss. Watch for a second sighting.
+
+- **Update, 2026-09-07 (T-04): F-9 second sighting.** The T-03 entry proposed a one-line
+  fix — "a regression test for a fix must be proven to fail against the unfixed code, by
+  the same check-out-the-old-file route the acceptance tests already use" — and said it
+  was worth doing before the next fix round rather than after a third sighting. It was
+  not done as a standing line in the builder brief; I wrote it per-item instead, into
+  fix-round items 1 and 2 and not into item 3. **Item 3 is the one that shipped
+  untested.** The `ORDER BY` tiebreak changed a stated contract and arrived with nothing
+  proving it held, and it took a reviewer round to notice; the test written afterwards
+  did fail red against the pre-fix query (`['Zebra.foo', 'Apple']` instead of
+  `['Apple', 'Zebra.foo']`), so the fix was correct and the gap was purely in the
+  evidence. Second sighting, and the cause is now specific: **an instruction repeated
+  per-item gets forgotten on the item that looks too small to need it.** It belongs in
+  the builder brief once, applying to every fix, not attached to the findings that
+  happen to feel serious. Harness findings are not binned and the rule of three does not
+  apply, but two sightings with a known one-line fix is enough — this should go into the
+  builder dispatch section of the orchestrate skill.
+  A methodology trap found in the same round and worth recording next to it: the code
+  reviewer noted that `git checkout <sha> -- .` only overlays tracked paths from that
+  commit and does not delete files added later, so it is **not** a safe way to reproduce
+  a red proof — a file added after the SHA survives the checkout and can turn the red
+  green. Use a real detached checkout. It caught this itself mid-review and switched.
+
+- **Update, 2026-09-07 (T-04): F-2 held a fourth time.** Boundary reviewer in its own
+  detached checkout at the reviewed SHA, code reviewer in the builder's worktree, across
+  two review rounds each. No cross-contamination, no anomaly dismissed as tooling, and
+  on the first round they converged independently on overlapping-but-distinct defects —
+  the boundary reviewer found the missing `DISTINCT`, the code reviewer found the
+  `ClassDef` fallback, and neither found the other's. The condition set at the second
+  sighting was met at the third and the skill still does not say to do this by default;
+  the orchestrator did it from the ledger rather than from the skill, which is exactly
+  the fragility the ledger is supposed to remove. **Still owed: one line in the
+  orchestrate skill.**
