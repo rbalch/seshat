@@ -41,8 +41,12 @@ ledger holds only what a verifier passed.
      the failure as feedback, rerun; second failure → `refuted`, `retries=1`.
      Returns `{status, reason}`.
    - the codegraph MCP server attached as an `MCPStdioClient` running
-     `codegraph serve --mcp` in the target with `CODEGRAPH_TELEMETRY=0` and
-     `CODEGRAPH_MCP_TOOLS` listing all eight tools.
+     `codegraph serve --mcp --no-watch` in the target with `CODEGRAPH_TELEMETRY=0`
+     and `CODEGRAPH_MCP_TOOLS=node,callers,callees,search,impact`. Codegraph 1.6.0
+     lists `codegraph_explore` alone by default; that env var adds the five
+     named above (verified against the installed binary; `files`, `status`,
+     `all` do not surface). Tell the model in the prompt to call
+     `codegraph_explore` first, then the narrower tools.
    The generation method `survey(self, unit: Unit) -> UnitReport: ...` with a
    docstring prompt: read the unit, recall memory, propose 2–5 structural claims,
    call `verify_claim` on each, remember dead ends, return

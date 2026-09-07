@@ -21,7 +21,7 @@ matches the session. Facts that shaped an answer are noted inline.
 | Q11 | Ablation | Rephrased as Q19. |
 | Q12 | Acceptance test | Five English questions written before the run; DB must answer with citations, no vectors. See Q37. |
 | Q13 | Model | DGX Spark, vLLM, `hosted_vllm/qwen3.8-27b`. See Q20. |
-| Q14 | Codegraph access | Scanner uses MCP (all eight tools via `CODEGRAPH_MCP_TOOLS`). Verifiers read `.codegraph/codegraph.db` directly through the helper API. |
+| Q14 | Codegraph access | Scanner uses MCP (`explore` by default plus `node,callers,callees,search,impact` via `CODEGRAPH_MCP_TOOLS`; 1.6.0 surfaces no more). Verifiers read `.codegraph/codegraph.db` directly through the helper API. |
 | Q15 | NOOA memory as ledger | Rephrased as Q21. |
 
 ## Round 2

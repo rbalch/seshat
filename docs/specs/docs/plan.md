@@ -152,7 +152,8 @@ seshat scan <repo> [--units N] [--minutes M] [--tokens T] [--workers W]
 6. **Worker turn** (per unit, CodeAct):
    - Recall relevant working memory.
    - Read the unit via codegraph MCP tools (`node`, `callers`, `callees`,
-     `search`, `impact`; all eight exposed via `CODEGRAPH_MCP_TOOLS`).
+     `search`, `impact`, plus `explore`; the five named tools surface only via
+     `CODEGRAPH_MCP_TOOLS`, see T-08).
    - Conjecture claims. For each, call the verifier author (Predict) to get
      `Verifier(source, expected, depends_on)`.
    - Run the verifier in-process against the helper API. Pass → `confirmed`.
