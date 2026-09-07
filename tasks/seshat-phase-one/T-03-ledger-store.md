@@ -28,7 +28,8 @@ never issues SQL of its own.
 2. `models.py`: frozen dataclasses mirroring each table (`Run`, `Unit`, `Claim`,
    `Verifier`, `Concept`, `Citation`). Status values are `Literal` types matching
    the comments in plan §4. `Citation` carries claim id, qualified name, file path,
-   `start_line`, `end_line`, `verified_sha`, verifier `last_status`.
+   `start_line`, `end_line`, `verified_sha`, verifier `last_status`, and the claim's
+   own `claim_status`.
 3. `store.py`, class `Ledger`:
    - `Ledger.open(repo_path: Path) -> Ledger` creates `.seshat/` and `ledger.db`
      inside the target if absent, applies the schema once, and appends `.seshat/`
@@ -79,7 +80,7 @@ never issues SQL of its own.
     contains `u2`;
   - `search_claims('OrderNotFound')` finds a claim containing that word and not one
     without it;
-  - `citation(claim_id)` returns all seven fields and `last_status` is `None` when
+  - `citation(claim_id)` returns all eight fields and `last_status` is `None` when
     the verifier has never run.
 - `make check` → exit 0
 

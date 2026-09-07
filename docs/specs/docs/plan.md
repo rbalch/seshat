@@ -105,7 +105,7 @@ claims(
 )
 
 verifiers(
-  id TEXT PK, claim_id → claims,
+  id TEXT PK, repo_id, claim_id → claims,
   source TEXT,            -- Python; runs against the graph helper API only
   expected TEXT,          -- JSON of the expected result
   depends_on TEXT,        -- JSON list of unit ids the check touches (invalidation)
@@ -124,7 +124,8 @@ concept_evidence(concept_id → concepts, claim_id → claims, PRIMARY KEY(conce
 ```
 
 **Citation** = claim id, unit qualified name, file path, line span, `verified_sha`,
-and the verifier's `last_status`. A stale citation announces itself inline.
+the claim's own status, and the verifier's `last_status`. A stale citation announces
+itself inline.
 
 ## 5. The scanning loop
 
