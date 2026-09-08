@@ -2,7 +2,7 @@
 id: T-07
 plan: seshat-phase-one
 title: Verifier author agent
-status: todo
+status: in_review
 depends_on: [T-03]
 files:
   - src/seshat/agents/__init__.py

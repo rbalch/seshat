@@ -608,3 +608,164 @@ recorded here so they are not rediscovered later.
   and review burden shrinks, explicitly not by whether CI goes red. A graduation step
   that can return "no control, here is why" is what stops the rule of three from
   degenerating into a quota.
+
+### F-17 — a library's retry default silently multiplied a "one shot" contract by ten
+
+- **Date:** 2026-09-08
+- **Task:** T-07
+- **Bin:** 2
+- **Claim:** Where a design fixes the number of model calls, the strategy object is
+  constructed with that number stated explicitly rather than left at the library's
+  default. `VerifierAuthor.author` was declared one-shot by design (task §Non-scope,
+  decisions Q27) and documented as such in its own module docstring, but
+  `nooa.PredictStrategy` defaults to `max_retries=10` and nothing constrained it. A
+  malformed response produced ten model calls before raising. `author_with_retry`'s
+  own one-retry budget — the entire retry contract the task specifies — sat on top of
+  a hidden loop an order of magnitude larger.
+- **Sightings:** 1
+- **Action:** soft — fixed in T-07 (PR #6) with
+  `PredictStrategy(config=PredictConfig(max_retries=1))` and a test pinning
+  `call_count == 1` on a malformed response. No control.
+- **Notes:** The acceptance tests could not have caught this and were not at fault. The
+  task's four required cases include a "bad response" scenario, but the bad response it
+  specifies (source missing `def check(`) still parses and validates cleanly, so the
+  library's retry loop never engaged. The defect lived in the gap between "invalid to
+  us" and "invalid to the library" — a distinction the task file had no reason to
+  anticipate. Found only because a reviewer fed a genuinely unparseable response
+  directly to the generation method rather than through the tested path.
+  Three more generation-point agents are planned (worker, reflection, answer) and each
+  will construct a strategy. If a second one ships with an unstated retry budget this
+  becomes a strong Bin 2 with an obvious checkable form: every `*Strategy(...)`
+  construction under `src/seshat/agents/` names its `max_retries`. Worth noting the
+  failure direction — the budget silently *widens*, so the symptom is cost and latency,
+  not an error, and nothing goes red.
+
+### F-18 — a textual check standing in for a structural one, in the guard whose job is to trigger the retry
+
+- **Date:** 2026-09-08
+- **Task:** T-07
+- **Bin:** 2
+- **Claim:** A check on generated code parses it rather than matching a substring of it.
+  `_has_check_entry_point` tested `'def check(' in source`, which returns `True` for
+  `"# TODO: implement def check(graph)\ndef not_check(graph): return 1"` — source with
+  no entry point at all. The guard exists solely to reject a bad spec and trigger the
+  one retry with feedback; a false pass wastes the retry, and the failure surfaces two
+  stages later in T-05's runner, far from the model call that caused it.
+- **Sightings:** 1
+- **Action:** soft — fixed in T-07 (PR #6) with an `ast.parse` walk that fails closed on
+  `SyntaxError`. No control.
+- **Notes:** Related to the false-success family (`F-4`, `F-10`, `F-13`) by direction —
+  a validator reporting success on input it did not actually validate — but the
+  mechanism is its own: text matching used where structure is meant. That mechanism is
+  checkable in a way the family's shared direction is not, which is why it is logged
+  separately rather than folded in as a fourth sighting of a family whose graduation was
+  already deliberately refused. Padding that count would be the failure mode the refusal
+  note warned about.
+  Worth recording that this one did *not* reach the ledger: T-05's runner rejects the
+  same source structurally, so no unverified claim could have been promoted. The cost
+  was a wasted generation and a diagnostic that points at the wrong stage.
+
+### F-19 — a tool diagnostic suppressed repo-wide to cover code that does not exist yet
+
+- **Date:** 2026-09-08
+- **Task:** T-07
+- **Bin:** 2
+- **Claim:** A suppression is scoped to the code that actually triggers the diagnostic.
+  `ty` reports a NOOA generation point's `...` body as an implicit `None` return against
+  its annotation. The fix landed as a repo-wide `[tool.ty.rules] empty-body = "ignore"`,
+  justified by the three further generation-point agents that will hit the same
+  diagnostic when they are written. Repo-wide suppression to pre-cover unwritten code
+  silences the diagnostic for every genuinely stubbed function under `src/` for the life
+  of the project.
+- **Sightings:** 1
+- **Action:** soft — narrowed in T-07 (PR #6) to a `[[tool.ty.overrides]]` block scoped
+  to the one file that currently trips it, mirroring how DEC-1's own ruff `S102` ignore
+  is scoped per-file. No control.
+- **Notes:** The builder's reasoning that this is tooling config rather than a governed
+  control was correct and I accepted it: nothing in `pyproject.toml` is covered by a
+  `pragma: external` content hash, and no control under `controls/` reads `.toml`. This
+  is not control evasion and should not be recorded as such. It is a scope judgement,
+  and the boundary reviewer settled it by execution rather than argument — it wrote the
+  narrower override, proved `ty check src/` still passed, then planted an empty-body
+  defect in `src/seshat/ledger/models.py` and proved the narrowed version still caught
+  it. That is the difference between a reviewer's preference and a reviewer's finding.
+  A control here would be brittle (judging whether a suppression is "too broad" needs to
+  know what code exists) and none is proposed. The general lesson — suppress what fails,
+  not what might — is closer to Bin 3 than the specific claim above.
+
+- **Update, 2026-09-08 (T-07): F-8 second sighting, now in code rather than in docs.**
+  `_has_check_entry_point` in `src/seshat/agents/verifier_author.py` and
+  `_find_check_function` in `src/seshat/verify.py` both define "what counts as a valid
+  `check` entry point". The duplication is deliberate and mine: DEC-1 confines `exec`
+  to `verify.py`, and I judged that importing it into the agent to save five lines
+  widens that module's reach into the agent's import graph for no good reason. The
+  contract then drifted twice inside a single task — the agent's copy accepted
+  `async def check(graph)` where the runner always rejects it (a spec passing validation
+  then failing a stage later), and rejected `def check(graph, extra=1)` where the runner
+  accepts and runs it (a valid verifier discarded, burning the one-shot budget). Both
+  were found only because a reviewer was asked to try to defeat the new predicate rather
+  than to read it, and both were aligned to the runner as the authority.
+  Second sighting of F-8's claim: a contract stated in more than one place, drifting.
+  The first was five prose statements of the citation contract; this is two predicate
+  functions. F-8's note said a checkable form was worth writing at the second sighting,
+  and a specific one exists here — the builder proposed it when asked for judgement
+  rather than compliance: one shared table of `(source, expected)` cases below both
+  modules, plus a single test asserting the two predicates agree pairwise over it. It
+  crosses no DEC-1 boundary, since `_find_check_function` is a pure `ast` reader
+  containing no `exec` or `eval`.
+  **Not implemented, and deliberately not folded into PR #6** — it is outside T-07's
+  declared `files` and lands in T-05's already-merged test area, so it is a planning
+  finding for the human, not a fix round. Both reviewers agreed with that call.
+  Note also what this is *not*: a control. The remedy is a test, and F-8 was right that
+  the general form — every contract stated once — is not machine-checkable and should
+  never be attempted. Third sighting is the one to watch, and by then the specific
+  remedy should already be in place.
+  One thing the aligned predicates now agree on and both get wrong: `def check(a, b)`
+  passes validation and would raise `TypeError` when the runner calls `check(graph)`.
+  Agreement on a gap is not the same defect as drift, and matching the authority was the
+  right call for T-07; the gap belongs to `verify.py` and is logged here rather than
+  fixed on this branch.
+
+- **Update, 2026-09-08 (T-07): F-2, seventh holding — and the first contamination in the
+  opposite direction.** The two-tree split held again across three review rounds: both
+  reviewers planted and reverted deliberate defects (planted `eval` against DEC-1's
+  control, a planted empty-body defect against the narrowed `ty` override) and neither
+  saw the other's. But during fix round 1 the **builder** used the boundary reviewer's
+  detached checkout as scratch for its red proof — copied its new test file in at
+  `21d94ce`, ran it, restored the tree. It was restored correctly; I verified
+  `git status --porcelain` empty and the SHA unchanged before advancing that tree, and
+  the boundary reviewer independently reconciled its own earlier test counts
+  (167 at `21d94ce`, +4 committed regression tests, 173 after round 2) and confirmed
+  nothing it had concluded could have been affected.
+  Every prior sighting of F-2 was a *reviewer* contaminating a tree. This is a builder
+  doing it, and the builder's brief says nothing about where a red proof may be staged —
+  only that it must be a genuine detached checkout, which the reviewer's tree
+  technically was. The brief that closed F-9 specified the *method* and left the
+  *location* open. Told the builder directly in fix round 2 to create its own; it did,
+  and removed it after. This costs one line in the builder brief — "create your own
+  detached checkout for a red proof; never write into a tree a reviewer is reading" —
+  and that line should go into the skill alongside the F-9 remedy it sits next to, since
+  both are facts about how a subagent is briefed at runtime and neither leaves anything
+  in the repo for a control to inspect.
+  No harm done this time, which is exactly what `F-2` and `F-6` both warned about: a
+  correct outcome is not evidence the method was sound.
+
+### Planning findings from T-07
+
+- **Plan §6 lists nine `Graph` methods; `src/seshat/graph.py` has eleven.** `nodes(kinds)`
+  and `inbound_call_count(qualified_name)` exist in the code and appear nowhere in §6.
+  The builder found this while quoting the nine into the prompt docstring as the task
+  requires, reported it rather than silently picking one, and left the docstring as the
+  task specified. For the human: either §6 is stale and should gain the two, or the two
+  are deliberately not part of the verifier-facing surface and §6 should say so. The
+  prompt currently offers a 27B model nine of the eleven ways to read the graph, which
+  may well be the right call — but it is currently an accident, not a decision.
+  Adjacent to `F-1` (a symbol named in acceptance criteria that the code does not
+  define) but the inverse: code the spec does not name. Logged once, not counted as an
+  `F-1` sighting.
+- **No live model call has exercised the prompt.** `LLM_HOST` is unset in this
+  environment, so the integration test skips and the hermetic suite proves only that the
+  prompt reaches the client and the plumbing round-trips. Whether a 27B model actually
+  returns a usable verifier from this docstring is untested, and that is the one thing
+  the task's acceptance criteria cannot measure. Carried to T-13's smoke test; noted
+  here because "all acceptance criteria pass" reads stronger than the evidence supports.
