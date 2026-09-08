@@ -435,3 +435,150 @@ recorded here so they are not rediscovered later.
   Still open from the same family: **F-9**, the red-proof requirement for fix-round
   regression tests, which has two sightings and the same one-line remedy, and is not yet
   written anywhere.
+
+### F-13 — the verifier sandbox handed out the whole interpreter, and reported the abuse as `pass`
+
+- **Date:** 2026-09-08
+- **Task:** T-05
+- **Bin:** 2
+- **Claim:** A namespace built to expose "only builtins, `json`, `re`, and the
+  `Graph`/`Node` types" passed the process's real `__builtins__` module through
+  unfiltered. The `ast` import gate rejected `import os` and nothing else, so a verifier
+  reached the filesystem and the shell on the next line via `__import__('os')`, `open()`
+  or a nested `eval`. A reviewer demonstrated the end state: a verifier that clears the
+  tautology gate, runs `os.system('echo pwned > marker')`, and returns a value matching
+  its expected JSON comes back `VerifierResult(status='pass', actual=None, error=None)`
+  with the marker written to disk.
+- **Sightings:** 1 as stated. **As the false-success family, 3** — see below.
+- **Action:** fixed in PR #5 by replacing the passthrough with an explicit ~26-name
+  allow-list, proven red against the pre-fix code. Dispatching `control-author` on the
+  family's third sighting; see the note there.
+- **Notes:** The failure direction is the whole point. Arbitrary code execution is bad;
+  arbitrary code execution *recorded in the ledger as a confirmed claim* is worse,
+  because the ledger's entire premise is that a row you can read is a row something
+  checked. This is the third member of the false-success family after `F-4` (config
+  truthiness) and `F-10` (the graph seam's silent wrong answers), and `F-10` set the
+  condition explicitly: "one more and it earns a decision."
+  Two things are worth separating. The *code* was in-spec — T-05's Non-scope says "do
+  not sandbox beyond the import gate; that is the phase-1.5 behavioral agent's job," and
+  the builder implemented exactly that. The *spec* was the defect: Scope's phrase
+  "exposes only builtins" plainly meant a restricted namespace and was implemented as
+  the literal builtins module, which made the import gate decorative. That is a planning
+  finding, and it is the fourth in this project after `F-1`, T-03's "seven fields" and
+  `F-11`. **Planning defects remain the most common kind here and the loop still has no
+  stage that reads a task file critically before a builder is dispatched.**
+  The fix is an improvement, not a solution, and the PR says so: attribute-traversal
+  escapes (`().__class__.__bases__[0].__subclasses__()`, or reaching a live module
+  through `__globals__`) need no builtins at all and remain open. Both reviewers
+  independently executed that route to full `os.system` and confirmed it. It is pinned
+  by a test explicitly labelled as documenting a limitation rather than asserting
+  correct behaviour, and deferred to phase 1.5.
+
+### F-14 — harness: the orchestrator's brief became governance text that nobody checked
+
+- **Date:** 2026-09-08
+- **Task:** T-05
+- **Bin:** unbinned harness finding
+- **Claim:** DEC-1 shipped claiming the import gate "protects a standing line in
+  `AGENTS.md`: 'Never run the target's own code.'" That sentence was false, and it came
+  near-verbatim from the orchestrator's dispatch brief to `control-author`. The agent
+  wrote the orchestrator's framing into a governance artifact without testing it, though
+  testing it was ten minutes' work — which is exactly what the boundary reviewer then
+  did, from the same tree, and disproved it immediately.
+- **Sightings:** 1
+- **Action:** soft — corrected in PR #5, twice: first to state the real containment, then
+  again when the code reviewer proved the residual gap was arbitrary code execution
+  rather than the introspection the wording implied. No control.
+- **Notes:** A decision is the most durable artifact this repo produces. Prose in a task
+  file gets superseded; a decision is what agents read as true, forever, and the whole
+  design rests on the view being trustworthy. So a false claim in a decision is a
+  strictly worse outcome than the same false claim in code, and this one was introduced
+  by the role that is supposed to be judging, not producing.
+  The mechanism generalises past this instance: **`control-author` verified its control
+  by execution and its decision's prose not at all.** It planted a violation, proved the
+  control went red, proved it went green again — genuinely good work — and then wrote an
+  untested security claim two paragraphs above. Nothing in the loop checks that a
+  decision's Context and Consequences are true; the boundary reviewer only caught it
+  because the orchestrator happened to ask it to audit DEC-1 specifically. That is luck,
+  not procedure, and it is the same shape as `F-2`, `F-6` and `F-9`: a correct outcome
+  reached by a route the harness does not require.
+  The cheap fix is one line in the `control-author` brief: any factual claim about what
+  the control or the code contains must be verified the same way the control itself is,
+  or stated as an open question. Worth doing before the next decision is authored.
+
+### F-15 — harness: the orchestrator's ambiguity rulings are the least-reviewed input in the loop
+
+- **Date:** 2026-09-08
+- **Task:** T-05
+- **Bin:** unbinned harness finding
+- **Claim:** Three of the defects found on this task trace to the orchestrator's own
+  wording rather than to the builder's judgement. (1) Ruling that the canonical pass
+  should sort every list, when the task said "lists sorted **where they were sets**" —
+  which made an order-dependent claim pass regardless of order, a false success.
+  (2) Instructing that "a graph call" with a non-literal argument fail closed, when only
+  `graph.node(...)` is ambiguous — which made the tautology gate reject legitimate
+  two-step verifiers. (3) The DEC-1 containment sentence recorded as `F-14`.
+- **Sightings:** 1
+- **Action:** soft — all three found by review and fixed within the task. No control; this
+  is a fact about how briefs are written, with nothing in the repo for a script to
+  inspect.
+- **Notes:** The orchestrate skill is built on the premise that the orchestrator forms
+  its own view rather than relaying, and that premise held where it mattered — the
+  builder's "S102 is the only remaining failure" was checked and found false, and the
+  boundary reviewer's blocking finding was re-executed before being accepted. But the
+  orchestrator's *own* output enters the loop unreviewed. A builder receives a ruling on
+  an ambiguity and implements it faithfully; no stage asks whether the ruling was right.
+  Here that cost two review rounds.
+  What makes it tractable rather than just a caution: in all three cases the task file
+  already contained the correct answer, and the ruling drifted from it. "Lists sorted
+  where they were sets" is unambiguous on re-reading. The failure was paraphrasing a
+  spec instead of quoting it. A cheap discipline follows — when ruling on an ambiguity,
+  quote the task's own words in the brief and rule *around* them rather than replacing
+  them, so the builder can see the original and push back. Worth trying on the next task
+  before proposing anything heavier.
+
+### F-16 — Bin 1: three type errors hid behind a fail-fast gate for a whole round
+
+- **Date:** 2026-09-08
+- **Task:** T-05
+- **Bin:** 1
+- **Claim:** The builder reported ruff's `S102` as "the only remaining failure" when
+  `make check` stopped there. Three `ty` errors in its own test file were sitting behind
+  it, invisible because the gate fails fast and `ty` never ran. The orchestrator acted on
+  the report as though it were exhaustive.
+- **Sightings:** 1
+- **Action:** soft — fixed in the first fix round. No new control: `ty` already catches
+  this and did, the moment it was allowed to run. `AGENTS.md` already warns that
+  `make check` reports only the earliest failing stage.
+- **Notes:** Bin 1 by construction — the tooling worked perfectly and the reporting
+  around it did not. Logged because the interesting part is not the type errors but the
+  claim: an agent converted "the stages after this one did not run" into "this is the
+  only failure," and the orchestrator believed it. The correction was cheap here and was
+  put into the next fix-round brief. Worth watching whether agents in this loop
+  habitually describe truncated pipelines as complete results, since that class of
+  overclaim is not specific to `make check`.
+
+- **Update, 2026-09-08 (T-05): F-9 is closed.** The remedy proposed at F-9's first
+  sighting and re-proposed at its second — a regression test for a fix must be proven to
+  fail against the unfixed code, by a genuine detached checkout — was written into the
+  builder's dispatch brief **once, as a standing requirement covering every fix round**,
+  rather than per-item as on T-04. It held for all three fix rounds and eight regression
+  tests, including the items that looked too small to need it. The builder also correctly
+  avoided both traps the ledger had already recorded: no bare `git stash` (`F-6`), and no
+  `git checkout <sha> -- .` (recorded on T-04, where the overlay leaves later-added files
+  in place and can turn a red green). Three sightings of the problem, one of the fix
+  working, and the fix now lives in the procedure rather than in this log. Like `F-2`,
+  no control is possible — this is a fact about how a subagent is briefed at runtime,
+  which leaves nothing in the repo for a script to inspect. It gets written into the
+  brief or it gets forgotten.
+
+- **Update, 2026-09-08 (T-05): F-2 held a sixth time, now from the skill rather than the
+  log.** Boundary reviewer in its own detached checkout, advanced with `git checkout
+  --detach` across three review rounds; code reviewer in the builder's worktree. Both
+  planted and reverted payloads — including live `os.system` calls that wrote marker
+  files — and neither saw the other's. On round 1 they converged independently on the
+  same blocking finding from different angles: the boundary reviewer proved the namespace
+  was open, the code reviewer proved it returned `pass`. That second half is what made it
+  a blocker rather than a caution, and a single contaminated tree would not have produced
+  it. First task where the orchestrator did this from the skill's own instructions rather
+  than by reading this log, which was the point of closing it.
