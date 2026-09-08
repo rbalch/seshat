@@ -67,6 +67,19 @@ extra-paths = ["governance/scripts"]
 # tests/fixtures/ is committed test data; see the ruff exclude above.
 exclude = ["tests/fixtures/"]
 
+[[tool.ty.overrides]]
+# Same rationale as the ruff PIE790 ignore above: a NOOA generation-point method's
+# body is `...` by design (see nooa/ellipsis_detection.py:has_ellipsis_body), which
+# ty otherwise reports as an implicit `None` return against a non-`None` annotation.
+# Scoped to this one file, mirroring how DEC-1's own ruff `S102` ignore is scoped
+# per-file rather than repo-wide (pyproject.toml `[tool.ruff.lint.per-file-ignores]`)
+# — the next generation-point agent (worker, reflection, answer) widens this list
+# when it lands, rather than this pre-covering files that do not exist yet.
+include = ["src/seshat/agents/verifier_author.py"]
+
+[tool.ty.overrides.rules]
+empty-body = "ignore"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "governance/scripts"]
