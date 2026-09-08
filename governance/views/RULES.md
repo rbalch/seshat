@@ -5,3 +5,4 @@
 These rules are enforced by CI. Violating one fails the build. To change a rule you must supersede its decision — author a replacement, mark this one superseded, update the control and its pragma, and rebuild this view. Never edit code to evade a control.
 
 - **[DEC-0] No file under `governance/views/` may be named `AGENTS.md`, and `governance/views/RULES.md` must exist.** (block)
+- **[DEC-1] A call to `exec` or `eval` may appear only in `src/seshat/verify.py`. No other file under `src/`, `controls/`, `governance/`, or `tests/` (excluding `tests/fixtures/`) may call either.** (block)
