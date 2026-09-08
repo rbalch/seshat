@@ -582,3 +582,29 @@ recorded here so they are not rediscovered later.
   a blocker rather than a caution, and a single contaminated tree would not have produced
   it. First task where the orchestrator did this from the skill's own instructions rather
   than by reading this log, which was the point of closing it.
+
+- **Update, 2026-09-08: the false-success family (F-4, F-10, F-13) reached three
+  sightings and was evaluated for a control, deliberately not given one.**
+  `control-author` checked each candidate mechanism concretely rather than in the
+  abstract: the F-13 namespace-passthrough fix on the T-05 branch is already pinned by a
+  runtime regression test in `tests/test_verify.py` that plants
+  `__import__('os').system(...)` and proves it fails — a static control on top would be
+  weaker than what exists, since an `ast` check on "does the exec call use
+  `_ALLOWED_BUILTINS`" cannot tell whether that dict still contains a dangerous name,
+  and the runtime test can (Bin 1, already covered). The F-10 `DISTINCT` fix in
+  `src/seshat/graph.py` was re-checked directly and is clean — every query joining
+  `edges` carries `DISTINCT`, and `search()` correctly does not, joining `nodes_fts` 1:1
+  — but the mechanism has exactly one sighting of its own, not three. Writing a control
+  for it now would manufacture a count the rule of three exists to prevent. No single
+  mechanism inside the family has recurred three times; only the *direction* is shared —
+  a false success reported silently, indistinguishable from a true one — and that
+  direction is "never return a confidently wrong answer," which F-10's own note already
+  said must never be attempted as a control. Refusal, not coverage, is the recorded
+  outcome. The `DISTINCT`-on-edge-join check remains a live candidate for a future task
+  if it resurfaces in a second unrelated file or task.
+  **The orchestrator's note:** this is the first time the rule of three fired and
+  produced nothing, and that is the harness working rather than failing. The falsifiable
+  test at the top of this file says to judge the experiment by whether Bin 2 stays fat
+  and review burden shrinks, explicitly not by whether CI goes red. A graduation step
+  that can return "no control, here is why" is what stops the rule of three from
+  degenerating into a quota.
