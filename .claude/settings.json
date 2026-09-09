@@ -6,5 +6,6 @@
   },
   "worktree": {
     "baseRef": "head"
-  }
+  },
+  "respectGitignore": false
 }
