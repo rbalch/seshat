@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import cast
 
@@ -362,6 +362,35 @@ def verifiers_to_rerun(ledger: Ledger, diff: UnitDiff, full: bool = False) -> li
 
 
 # -- queue -----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class UnitReport:
+    """What one worker turn on one unit produced (T-08 plan §5 step 6).
+
+    `claims_confirmed` and `claims_refuted` are claim ids, not text — the
+    ledger is the source of truth for the text and status, this is just a
+    tally. `notes` are the worker's own dead-end remarks (never claim text,
+    never persisted to the ledger — AGENTS.md "Never: store prose where a
+    claim belongs").
+
+    Lives here, not in `agents/worker.py`: this module imports no model
+    (`units.py` sits below the model seam in AGENTS.md's architecture
+    diagram, next to `sync_units`/`build_queue`), so T-09's deterministic
+    orchestrator can import `UnitReport` without reaching into an agent
+    module and, transitively, into `nooa`.
+
+    `tokens` defaults to `0` because `Worker.survey` (the model generation
+    point) builds a `UnitReport` with no notion of its own token cost —
+    `run_unit` is the one place that knows the true count (from NOOA's own
+    token accounting on the LLM responses it observed) and returns a
+    `dataclasses.replace`d copy with `tokens` filled in.
+    """
+
+    claims_confirmed: list[str] = field(default_factory=list)
+    claims_refuted: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    tokens: int = 0
 
 
 def build_queue(ledger: Ledger, seed_names: set[str]) -> list[Unit]:

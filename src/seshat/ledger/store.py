@@ -413,11 +413,39 @@ class Ledger:
         self.conn.commit()
         return stamped
 
-    def set_claim_status(self, claim_id: str, status: str, run_id: str, verified_sha: str | None = None) -> Claim:
-        self.conn.execute(
-            'UPDATE claims SET status = ?, verified_run = ?, verified_sha = ? WHERE id = ?',
-            (status, run_id, verified_sha, claim_id),
-        )
+    def set_claim_status(
+        self,
+        claim_id: str,
+        status: str,
+        run_id: str,
+        verified_sha: str | None = None,
+        retries: int | None = None,
+    ) -> Claim:
+        """Update a claim's status (and `verified_run`/`verified_sha`); optionally its `retries`.
+
+        `retries=None` (the default) leaves the `retries` column untouched —
+        every caller before T-08 relies on this method writing status,
+        `verified_run` and `verified_sha` only, and none of them pass
+        `retries`, so this is the exact same UPDATE they always got. Only
+        when a caller passes a real `int` does the column move: T-08's
+        `Worker.verify_claim` needs to record how many retries a claim took
+        (0 on a first-try pass, 1 after one retry, whether the second
+        attempt passed or the claim ended up `refuted`), and there was no
+        typed path to write it at all before this — `add_claim` is
+        insert-only and rejects any status but `conjectured`. Same shape as
+        the `F-20` defect in `docs/ledger-findings.md`: a status write that
+        cannot write a field the status carries.
+        """
+        if retries is None:
+            self.conn.execute(
+                'UPDATE claims SET status = ?, verified_run = ?, verified_sha = ? WHERE id = ?',
+                (status, run_id, verified_sha, claim_id),
+            )
+        else:
+            self.conn.execute(
+                'UPDATE claims SET status = ?, verified_run = ?, verified_sha = ?, retries = ? WHERE id = ?',
+                (status, run_id, verified_sha, retries, claim_id),
+            )
         self.conn.commit()
         row = self.conn.execute('SELECT * FROM claims WHERE id = ?', (claim_id,)).fetchone()
         if row is None:
