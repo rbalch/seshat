@@ -64,8 +64,8 @@ minute of reading that would have caught each one first.
 
 - `CLEAN` → dispatch the builder.
 - Findings → **stop and take them to the human.** A task file changes only by their
-  decision, then you commit the correction on `develop` and dispatch. You do not fix the
-  task file yourself; your own reading is the least-reviewed input in the loop (F-15).
+  decision; apply it to the file (it is untracked, nothing to commit) and dispatch. You
+  do not fix the task file yourself; your own reading is the least-reviewed input in the loop (F-15).
 
 ## 1. Builder dispatch
 
@@ -74,7 +74,8 @@ default. The worktree is created for you under `.claude/worktrees/` and branches
 your current HEAD, which is why you stay on `develop`. Reuse the same builder via
 `SendMessage` for fix rounds; its context is warm and the worktree is already set up.
 
-The brief is the task file, plus:
+The brief is the task file's **absolute path in the root checkout** (`tasks/` is
+untracked, so it is not in any worktree; every agent reads it from the root), plus:
 
 - **Worktree setup**: run `codegraph init` first so the graph reflects the tree being
   edited, then `uv sync`. Report the worktree path in the return; you need it for the
@@ -146,8 +147,8 @@ sightings behind this.
   red-then-green proof, correctness, tests, contracts, failure directions, code shape. It
   owns `review.md` / `review.json` there; both are gitignored.
 
-Both briefs carry: that reviewer's own path, the task file path, the acceptance-test
-commit SHA, and the range to review (`develop..HEAD`).
+Both briefs carry: that reviewer's own path, the task file's absolute root path, the
+acceptance-test commit SHA, and the range to review (`develop..HEAD`).
 
 Both briefs must demand: verify by execution, not by reading; findings with severity,
 `file:line`, and a concrete failure scenario for anything called a bug; attention to
@@ -209,11 +210,20 @@ On approval, in the worktree, by you or by the builder under your instruction:
    here. That belongs in `docs/ledger-findings.md`, which already has it. If a bullet
    needs a paragraph, it is a ledger entry, not a PR bullet.
 3. Push the branch. Open the PR with `gh pr create`, body from the commit message, same
-   cap. Add the task-file link on one line.
+   cap. Then append the whole task file inside a collapsed block — `tasks/` is
+   untracked, so **the merged PR is the only permanent record of the brief**:
+
+   ```
+   <details><summary>Task brief T-NN</summary>
+
+   (task file, verbatim, after any task-critic corrections)
+
+   </details>
+   ```
    - **Base is `develop`**, unless this task `depends_on` a task whose PR is still open.
      Then the base is that task's branch, and the PR is stacked. GitHub retargets it to
      `develop` when the predecessor merges and its branch is deleted.
-   - Title `T-NN: <title>`. Link the task file and the spec.
+   - Title `T-NN: <title>`. Link the spec.
 4. Back on `develop`: commit the ledger changes from step 5 as `chore(T-NN): triage`.
    Do not touch the task file; the open PR *is* its status.
 5. Remove nothing. The worktree stays until the PR merges, in case of review comments

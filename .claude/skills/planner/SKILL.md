@@ -25,8 +25,9 @@ conversation ──▶ agreed plan ──▶ docs/specs/<slug>.md
   Never read `governance/decisions/` for rules.
 - `docs/specs/` and `docs/adr/` — prior plans and decisions. Do not re-decide something
   already decided; cite it.
-- `tasks/` — anything still `todo` or `in_progress`. A new plan that overlaps unfinished
-  work needs to say so.
+- `make tasks` — anything not yet `done`. A new plan that overlaps unfinished work needs
+  to say so. `tasks/<slug>/` is untracked (only `tasks/README.md` is in git); the files
+  live on this machine and the merged PRs hold the shipped briefs.
 
 ## 1. The conversation
 

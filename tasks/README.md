@@ -4,6 +4,12 @@ One directory per plan, one file per task. The `planner` skill writes them; the
 `orchestrate` skill consumes them. A task file is a self-contained brief: an agent given
 only that file, `AGENTS.md`, and `governance/views/RULES.md` has everything it needs.
 
+**`tasks/<slug>/` is untracked.** Only this README is in git. Task files are working
+notes on the machine running the plan; agents in worktrees read them by absolute path
+from the root checkout. The permanent record of a brief is its PR, which carries the
+task file verbatim in a collapsed block. Status is never stored either: `make tasks`
+derives it from PR state.
+
 ```
 tasks/
 └── <plan-slug>/
