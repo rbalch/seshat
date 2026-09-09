@@ -901,3 +901,46 @@ recorded here so they are not rediscovered later.
   deliberately rather than by luck. At `F-15`'s third independent sighting this stops being
   an anecdote about one session's mistakes and becomes an argument for a structural check
   on orchestrator instructions.
+
+### F-24 — five task-file defects in one task, caught before a builder existed
+
+- **Date:** 2026-09-09
+- **Task:** T-10
+- **Bin:** 2
+- **Claim:** Every symbol a task's scope and acceptance name either exists in a dependency
+  that is `done`, or is defined by the task itself with enough detail to assert on. T-10
+  broke this five ways: (1) `ReflectionSummary` is the return type of the task's central
+  function and the subject of an acceptance bullet, but no section declares a single field
+  of it; (2) scope §3's "drops any evidence id that is not in the batch and not
+  `confirmed`" reads two ways and every acceptance bullet passes under both; (3) scope §5
+  requires conforming to T-09's `after_scan(ledger, run)`, and `after_scan` appears nowhere
+  in `src/` — only in the prose of two `todo` task files; (4) `files:` omits
+  `src/seshat/ledger/store.py` although `set_candidate` is confirmed absent and
+  `flag_candidates` cannot be written without it; (5) `depends_on: [T-03]` declared neither
+  the T-09 coupling that §5 creates nor T-08.
+- **Sightings:** 1 for the multi-defect shape. **As a planning defect, the sixth** — after
+  `F-1`, `F-11`, `F-22` and the two the ledger already counts there.
+- **Action:** soft — the human decided on `develop` in `8c6e478`: `depends_on` widened to
+  `[T-03, T-08, T-09]`, and scope §3 rewritten to batch-membership-only with the redundant
+  clause deleted and the absence of a ledger-wide lookup stated. Defects (1) and (4) were
+  explicitly left open by the human's call; they must be resolved before T-10 dispatches.
+  No control.
+- **Notes:** The first planning defect this project caught *before* a builder existed. The
+  previous five were all found after code was written against them — `F-22` cost a full
+  review round and a human correction mid-task, `F-1` corrupted two task files that had
+  already shipped acceptance criteria asserting on a class the fixture never defines. The
+  `task-critic` stage was added to `orchestrate` as the recommendation recorded under
+  `F-22`; this is its first run against a task it had not already seen fixed, and it
+  returned five findings for roughly two minutes of reading. That is the cheapest defect
+  removal in the log so far.
+  Worth being honest about what it does not settle: a pre-dispatch reader is a *soft*
+  layer, not a control. It found (3) by grepping `src/` for a symbol the task named, which
+  a script could do — a candidate for the same automation `F-1` floated and nobody built.
+  Defect (2), the ambiguity, is the one no script would ever catch: both readings are
+  coherent English and both satisfy the acceptance list. That is the class this harness
+  exists for, and it is also the class that stays in Bin 2 forever.
+  Watch the direction of the human's ruling on (1) and (4). Leaving `ReflectionSummary`
+  unspecified means whichever builder eventually runs T-10 invents the field names and
+  writes an acceptance test against its own invention — the F-23 failure mode, a green
+  test that pins whatever the code happened to do. If T-10 dispatches with that still open,
+  expect it back as a review finding.
