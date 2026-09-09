@@ -7,6 +7,8 @@ depends_on: [T-05, T-07]
 files:
   - src/seshat/agents/worker.py
   - src/seshat/memory.py
+  - src/seshat/units.py
+  - src/seshat/ledger/store.py
   - tests/agents/test_worker.py
 rules: []
 ---
@@ -26,7 +28,10 @@ ledger holds only what a verifier passed.
    plus `seed_docs(memory, repo) -> list[str]` that stores each paragraph of
    `README.md` and `docs/**/*.md` as an `info` memory tagged `source=readme` and
    returns the set of code identifiers (`CamelCase` or `snake_case` tokens with a
-   dot or parenthesis nearby) it found, for queue boosting.
+   dot or parenthesis nearby) it found, for queue boosting. The dot or
+   parenthesis is a *filter* — it marks the preceding token as code rather than
+   prose — and is never part of the captured string: `` `OrderRepository.get` ``
+   in the text yields `OrderRepository`, not `OrderRepository.get`.
 2. `Worker(nooa.Agent)`, `CodeActStrategy`, thinking on per settings. Tools (methods
    with bodies):
    - `unit_brief() -> str`: the unit's source (lines from the graph span), its
@@ -42,10 +47,12 @@ ledger holds only what a verifier passed.
      Returns `{status, reason}`.
    - the codegraph MCP server attached as an `MCPStdioClient` running
      `codegraph serve --mcp --no-watch` in the target with `CODEGRAPH_TELEMETRY=0`
-     and `CODEGRAPH_MCP_TOOLS=node,callers,callees,search,impact`. Codegraph 1.6.0
-     lists `codegraph_explore` alone by default; that env var adds the five
-     named above (verified against the installed binary; `files`, `status`,
-     `all` do not surface). Tell the model in the prompt to call
+     and `CODEGRAPH_MCP_TOOLS=explore,node,callers,callees,search,impact`.
+     Codegraph 1.6.0 lists `codegraph_explore` alone by default, and this env var
+     **replaces** that default rather than extending it — omit `explore` from the
+     list and the model never sees `codegraph_explore` at all. Verified against
+     the installed binary: the six named above all surface, and `files`,
+     `status`, `all` do not. Tell the model in the prompt to call
      `codegraph_explore` first, then the narrower tools.
    The generation method `survey(self, unit: Unit) -> UnitReport: ...` with a
    docstring prompt: read the unit, recall memory, propose 2–5 structural claims,
@@ -55,6 +62,17 @@ ledger holds only what a verifier passed.
    then sets the unit `scanned` with `last_scanned_run`, and returns the report
    plus tokens used from NOOA's token accounting.
 4. Claim `mode='claims'`, `kind='structural'` always in phase one.
+5. `Ledger.set_claim_status` gains `retries: int | None = None` and writes that
+   column when it is not `None`, leaving it untouched when it is. Today the
+   method writes status, verified run and `verified_sha` only, and `add_claim`
+   is insert-only and rejects any status but `conjectured`, so there is no typed
+   path to record a retry at all. Same shape as the `F-20` defect in
+   `docs/ledger-findings.md`: a status write that cannot write a field the
+   status carries. Existing callers keep their behaviour.
+6. `UnitReport(claims_confirmed, claims_refuted, notes, tokens)` is defined in
+   `src/seshat/units.py`, not in `agents/worker.py`. It is a plain frozen
+   dataclass and `units.py` imports no model, so T-09's deterministic
+   orchestrator can import it without reaching into an agent module.
 
 ## Non-scope
 
@@ -80,7 +98,11 @@ ledger holds only what a verifier passed.
     `last_status == 'fail'`;
   - a stub verifier with `tautology` error is treated like a failure (retry once);
   - `run_unit` with a `FakeLLMClient` scripted to end the CodeAct turn immediately
-    sets the unit `scanned` and returns a `UnitReport`.
+    sets the unit `scanned` and returns a `UnitReport`;
+  - that same `UnitReport` carries a token count read from NOOA's token
+    accounting, not a constant: the test asserts it is greater than zero and
+    that it tracks the fake's accounted usage, so a hardcoded `0` or a literal
+    fails.
 - `uv run pytest -m integration tests/agents/test_worker.py -q` → skipped without
   `LLM_HOST`; with it, one real `survey` on `OrderRepository.get` produces at
   least one claim row in any status.
