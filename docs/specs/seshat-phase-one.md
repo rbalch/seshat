@@ -74,11 +74,28 @@ this planning session, no ADR (no alternative was live long enough to re-litigat
 | T-11 | Read-only CLI | [T-09, T-10] |
 | T-12 | Answer agent and `seshat ask` | [T-11] |
 | T-13 | Spark smoke script and integration tests | [T-08] |
+| T-14 | Read source through one reader, and tell unreadable from vanished | [T-08] |
 
 Parallel lanes: {T-01, T-02} → {T-03, T-04} → {T-05, T-06, T-07, T-10} → T-08 →
-{T-09, T-13} → T-11 → T-12.
+{T-09, T-13, T-14} → T-11 → T-12.
+
+T-14 was added after T-08 merged, from `F-28`: `enumerate_units` raises
+`UnicodeDecodeError` on any repo containing one non-UTF-8 source file, so no scan of
+that repo starts.
+
+T-14's `files` are disjoint from T-09's (`scan.py`) and T-13's (`scripts/`,
+`tests/integration/`, `README.md`), so all three can run in separate sessions at once.
+One coupling to know about: T-14 adds an `unreadable` list to `UnitDiff` and a fourth
+`UnitStatus`, both of which T-09 consumes. Running T-14 first avoids it. Running them
+in parallel is fine and costs T-09 a follow-up line to report the new count — it does
+not invalidate anything T-09 builds, because the existing four fields keep their
+meaning.
 
 ## Open questions
+
+- Whether an undeclared non-UTF-8 file should ever be decoded by guess (chardet or
+  similar) rather than left `unreadable`. T-14 leaves it unreadable deliberately;
+  revisit only if real targets show it is common. Owner: Ryan.
 
 - Whether `qwen3.8-27b` can drive CodeAct at all. T-13 answers it; if not, the worker
   and answer agents move to `PurePythonStrategy` in config (plan §8). Owner: Ryan.
