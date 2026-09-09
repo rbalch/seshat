@@ -30,6 +30,33 @@ ORCHESTRATOR (you, on develop, never inside a worktree)
   └─ status is derived: open PR = in_review, merged = done (`make tasks`)
 ```
 
+## Talking to the human
+
+The human reads none of the reports. They read you. Every time you stop for a decision,
+you translate; the critic, builder and reviewer reports stay as they are, for you.
+
+- **One line of what is wrong, in behaviour, no code names.** "A test that should catch a
+  no-op rerun passes by accident", not the symbol chain that proves it. The proof stays
+  in the report. Cite **one** file or path per item in backticks so they can go look;
+  never more.
+- **Recommend, always, with one clause of why.** They usually take it. The shape is:
+  problem → your pick → why → confirm.
+- **Show choices only at a real fork.** Two answers you would each defend, or none you
+  would. Then one bullet per option with its one-line cost, and still say which you
+  prefer.
+- **Nits are yours.** Fix them, or say no to them, and list the outcome one line each.
+  Only forks and blockers get a question.
+- **Ask with the question tool** (`AskUserQuestion`), one question per fork,
+  recommended option first. Not a wall of "your call on 1–6".
+- **Hard cap 15 lines** for the whole stop. If it needs more, the task file needs
+  splitting, not the message lengthening.
+
+Before this rule, a critic stop looked like six numbered paragraphs of `module.func`
+citations with the actual choice buried mid-sentence. After: "2 blockers, 4 nits. (1)
+Task describes as new work something the code already does; reword the bullet. (2) The
+no-op test can pass vacuously; the orchestrator should mark units done, alt: the stub
+does. Nits fixed as listed." Then the picker.
+
 ## 0. Before dispatching anything
 
 Read:
@@ -63,8 +90,8 @@ bullet can be written as a test that goes red here. Five of the findings in
 minute of reading that would have caught each one first.
 
 - `CLEAN` → dispatch the builder.
-- Findings → **stop and take them to the human.** A task file changes only by their
-  decision; apply it to the file (it is untracked, nothing to commit) and dispatch. You
+- Findings → **stop and take them to the human**, in the shape under *Talking to the
+  human*. A task file changes only by their decision; apply it to the file (it is untracked, nothing to commit) and dispatch. You
   do not fix the task file yourself; your own reading is the least-reviewed input in the loop (F-15).
 
 ## 1. Builder dispatch
@@ -179,7 +206,8 @@ while verdict != APPROVE or score < 4 or blocking/important findings remain:
 - Fold cheap minors and nits into fix rounds. Do not carry one-line debt into the PR.
 - Accept 4/5 only when the reviewer explicitly judges the leftovers acceptable by design.
   **5/5 is the target.**
-- **`NEEDS_HUMAN` stops the loop.** Report and wait. Do not iterate past it.
+- **`NEEDS_HUMAN` stops the loop.** Report in the *Talking to the human* shape and wait.
+  Do not iterate past it.
 - **An acceptance test the builder wants to change** is a planning question, not a fix
   round. If the criterion was wrong, stop and report; the human decides whether the task
   file changes.
