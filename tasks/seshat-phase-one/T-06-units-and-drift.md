@@ -59,9 +59,11 @@ incremental because this task makes it so.
   - `unit_id` is stable across calls and differs for a different file;
   - first `sync_units` returns everything in `new`, ledger rows are `pending`;
   - second `sync_units` with no edits returns everything in `unchanged`;
-  - after editing a function body (not its name) → that unit alone is in
-    `changed`, its claims are `stale`, `verifiers_to_rerun` returns only verifiers
-    whose `depends_on` includes it;
+  - after editing a function body (not its name) → that unit is in `changed`,
+    together with the enclosing class and module units, whose own `ast_hash`
+    necessarily contains the edited body; an untouched sibling function in the
+    same class stays `unchanged`; the edited unit's claims are `stale`, and
+    `verifiers_to_rerun` returns only verifiers whose `depends_on` includes it;
   - after adding only a comment inside a function → `unchanged`;
   - after deleting a function from the source → that unit is `vanished`;
   - `verifiers_to_rerun(full=True)` returns every verifier;
