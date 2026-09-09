@@ -2,7 +2,7 @@
 id: T-06
 plan: seshat-phase-one
 title: Unit enumeration, ast_hash, drift diff
-status: todo
+status: in_review
 depends_on: [T-03, T-04]
 files:
   - src/seshat/units.py

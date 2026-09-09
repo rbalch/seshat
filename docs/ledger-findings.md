@@ -518,7 +518,7 @@ recorded here so they are not rediscovered later.
   (2) Instructing that "a graph call" with a non-literal argument fail closed, when only
   `graph.node(...)` is ambiguous — which made the tautology gate reject legitimate
   two-step verifiers. (3) The DEC-1 containment sentence recorded as `F-14`.
-- **Sightings:** 1
+- **Sightings:** 2 — second sighting `F-23` (T-06), two occurrences counted once.
 - **Action:** soft — all three found by review and fixed within the task. No control; this
   is a fact about how briefs are written, with nothing in the repo for a script to
   inspect.
@@ -769,3 +769,135 @@ recorded here so they are not rediscovered later.
   returns a usable verifier from this docstring is untested, and that is the one thing
   the task's acceptance criteria cannot measure. Carried to T-13's smoke test; noted
   here because "all acceptance criteria pass" reads stronger than the evidence supports.
+
+### F-20 — a status write that could not write the field the status is derived from
+
+- **Date:** 2026-09-09
+- **Task:** T-06
+- **Bin:** 2
+- **Claim:** A unit's `vanished` status is derived from `ast_hash is None`, but the call
+  used to set it, `Ledger.set_unit_status`, cannot write the `ast_hash` column at all.
+  The row therefore kept its last real hash cached while claiming to be vanished. Restore
+  a briefly-unparseable file byte-for-byte — or let a node return to the graph unchanged —
+  and the next sync compares the real hash against that identical cached value, reports
+  `unchanged`, and leaves `status='vanished'` permanently. The unit is invisible to
+  `build_queue` forever with no path back. Fixed by building the row from the prior one
+  and upserting `ast_hash=None`, so any real hash compares unequal and recovery always
+  lands in `changed`.
+- **Sightings:** 1. It occurred in two branches of one function, but that is one cause in
+  one task, so it counts once — see the same-batch rule.
+- **Action:** soft — both branches fixed in PR #7, each pinned by a test proven red first.
+  No control.
+- **Notes:** The checkable claim is narrower than the family it belongs to and worth
+  stating on its own: **a write that sets a status must also write every field that
+  status is derived from, or the row can assert something the data contradicts.** That is
+  structural and a machine could check it, unlike "never return a confidently wrong
+  answer," which `F-10` already ruled out as a control. Logged as its own mechanism at one
+  sighting rather than as a fourth member of the false-success family, whose graduation
+  was deliberately refused on 2026-09-08 precisely because no single mechanism inside it
+  had recurred three times. Padding that count is the failure mode the refusal exists to
+  prevent, and the same reasoning `F-18` used to stay separate applies here.
+  Worth flagging for whoever fixes the follow-up: `Ledger.upsert_unit` unconditionally
+  stamps `last_seen_run=run_id` with no way to opt out, which is the same shape of defect
+  one level down — an API that forces a write the caller does not mean. It is why a
+  vanished unit is now recorded as seen in a run that did not see it, an accepted and
+  documented trade in PR #7. A `store.py` task that gives `upsert_unit` an opt-out closes
+  both. If that lands and the pattern shows up in a third unrelated place, this becomes a
+  serious graduation candidate.
+
+### F-21 — harness: two reviewers cleared a defect by reading that one test then caught
+
+- **Date:** 2026-09-09
+- **Task:** T-06
+- **Bin:** unbinned harness finding
+- **Claim:** `F-20`'s defect survived review twice, in the two different ways review can
+  fail. First: the code reviewer traced the recovery path by hand, concluded a
+  transiently-unreadable file recovers correctly, and noted only that nothing pinned it.
+  Asked to write that test, the builder found it went **red** — the hand-trace had reached
+  the opposite of the truth. Second: after that fix, the boundary reviewer scored the
+  delta 5/5 with zero findings and explicitly called the fix "minimal and correct" for
+  deliberately not touching the sibling branch. The code reviewer then wrote a test
+  against that untouched branch and found the identical permanent-stuck bug still live.
+  Both misses came from reading; both catches came from executing.
+- **Sightings:** 1
+- **Action:** soft — noted. Both defects fixed inside PR #7 with red proofs. No control;
+  this is about how the loop is run, not about code.
+- **Notes:** Both reviewer briefs in this repo already say "verify by execution, not by
+  reading," and both reviewers do plant-and-revert defects diligently — they did so here,
+  repeatedly and well. The gap is narrower: they execute against the code that **is**
+  there and reason about the code that is **not**. A branch nobody wrote a test for gets
+  read, and a reviewer's own hand-trace is the least-tested artifact in the loop, because
+  nothing checks it the way a planted mutation checks an assertion.
+  The cheap intervention is already proven and cost one sentence: when a reviewer reports
+  a property it verified by tracing rather than by running, the orchestrator asks for the
+  test. That is exactly what produced both catches here, and the second one only happened
+  because the first had made the question worth asking again. Recording it because "the
+  reviewers approved it" was true twice about code with a permanent false-success bug in
+  it, and the only thing that separated the approvals from the truth was whether someone
+  ran it.
+
+### F-22 — an acceptance criterion that was logically unsatisfiable
+
+- **Date:** 2026-09-09
+- **Task:** T-06
+- **Bin:** 2
+- **Claim:** T-06's acceptance required that editing a function body leave "that unit
+  alone" in `changed`. The same task file specifies that a `module` unit hashes the whole
+  file, and a class's `ast.dump` necessarily contains its nested methods, so the enclosing
+  class and module hashes genuinely change too. Satisfying the criterion as written would
+  have required reporting those ancestors as `unchanged` — a false "nothing changed", the
+  exact failure this module exists to prevent. The criterion was unsatisfiable against its
+  own task file, not merely awkward.
+- **Sightings:** 1 for this mechanism. **As a planning defect, the fifth** — after `F-1`,
+  T-03's "seven fields", `F-11`, and `F-13`'s spec/code split.
+- **Action:** soft — the human corrected the criterion on `develop` in `1ca3e91` before
+  the fix round ran. The builder flagged it and stopped rather than quietly narrowing the
+  test, which is the contract working as written.
+- **Notes:** The checkable claim: **a task file must not state an acceptance criterion its
+  own scope section contradicts.** Both halves were in the same file, twelve lines apart.
+  A machine cannot check the general case, but a reviewer reading the task file before
+  dispatch would have caught this one in a minute — which is `F-13`'s standing observation,
+  now on its fifth instance: *planning defects remain the most common kind of finding in
+  this project, and the loop still has no stage that reads a task file critically before a
+  builder is dispatched.* Five sightings of a gap in the loop's shape is a stronger signal
+  than most Bin 2 code patterns carry, and the rule of three does not apply cleanly because
+  the fix is a loop stage, not a control. Recommending it to the human as a change to
+  `orchestrate`: a cheap pre-dispatch read of the task file against itself.
+  Worth noting what did work: the builder reported the contradiction instead of rewriting
+  the test, both reviewers independently reached the same conclusion, and the corrected
+  criterion is now **stricter** than the one it replaced — it pins that an untouched
+  sibling stays `unchanged`, which the original never asked for.
+
+### F-23 — harness: the orchestrator's fix-shape suggestion would have shipped a test that could not fail
+
+- **Date:** 2026-09-09
+- **Task:** T-06
+- **Bin:** unbinned harness finding
+- **Claim:** Second and third sightings of `F-15`. Twice in one task the orchestrator
+  handed the builder an instruction that was wrong, and twice the builder caught it rather
+  than complying. (1) The orchestrator specified pinning a unit's status as `'scanned'` in
+  a regression test — the same literal the mutation it was meant to catch hard-codes, so
+  the test would have passed with the bug in place, unable to distinguish "preserved" from
+  "stomped to the same value". The builder switched the pinned status to `'changed'` and
+  proved the mutation red. (2) The orchestrator asserted that `last_seen_run` should not be
+  bumped for a node nothing saw this run; `upsert_unit` stamps it unconditionally with no
+  opt-out, so the only way to comply was `set_unit_status` — the very call that causes
+  `F-20`. The builder took the correct `ast_hash` instead and said plainly why.
+- **Sightings:** 1 as stated. **As `F-15`, 2** — both occurrences are one task and one
+  cause, so they count once under the same-batch rule.
+- **Action:** soft — noted. Both instructions were overruled correctly before any code was
+  written; nothing shipped.
+- **Notes:** `F-15` recorded that orchestrator rulings are the least-reviewed input in the
+  loop: builder and reviewer output both get checked by something, and the orchestrator's
+  own reasoning gets checked by nothing. This is that, sharpened — instruction (1) would
+  have produced a *green test that could never fail*, which is the false-success direction
+  arriving through the harness rather than through the code, and no reviewer would have
+  caught it because a passing test that pins the wrong literal looks exactly like a passing
+  test.
+  What saved it both times was a builder willing to say "your fix shape is wrong, here is
+  why," which is not a property the harness enforces anywhere. The brief that produced it
+  asked for reasons and evidence rather than compliance, and both refusals came back with
+  the constraint quoted from `store.py`. Worth keeping that framing in builder briefs
+  deliberately rather than by luck. At `F-15`'s third independent sighting this stops being
+  an anecdote about one session's mistakes and becomes an argument for a structural check
+  on orchestrator instructions.
