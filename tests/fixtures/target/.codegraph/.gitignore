@@ -1,0 +1,13 @@
+# CodeGraph data files — local to each machine, not for committing.
+# Ignore everything in .codegraph/ except this file itself, so transient
+# files (the database, daemon.pid, sockets, logs) never show up in git.
+#
+# EXCEPT here. This is T-01's fixture target, the one place in this repo whose
+# index is committed on purpose (see /.gitignore's `!tests/fixtures/target/
+# .codegraph/` carve-out and commit 880a58c). codegraph rewrites this file on
+# every `init`, and a bare `*` silently overrides that carve-out: nested
+# .gitignore rules beat parent ones, so the fixture index would stop being
+# tracked the moment anyone re-added it. Keep the negation below.
+*
+!.gitignore
+!codegraph.db
