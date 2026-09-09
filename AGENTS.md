@@ -59,6 +59,7 @@ feeds every finding into the ledger instead of letting it evaporate.
 
 /orchestrate tasks/<slug>      ORCHESTRATOR (you, on develop, never in a worktree)
   │   ┌───────────────────────────── one task ─────────────────────────────┐
+  ├──▶│ task-critic (root)   task file vs the tree → CLEAN, or the human    │
   ├──▶│ builder (worktree)   codegraph init → acceptance tests RED → GREEN │
   ├──▶│ boundary-reviewer    live rules + this project's architectural seams│
   ├──▶│ reviewer             red-then-green proof, correctness, tests, shape│
@@ -93,6 +94,7 @@ Skipping triage means running the experiment while discarding the data.
 |---|---|
 | `planner` (skill) | Plan with the human. Writes the spec, the task files, an ADR if earned. |
 | `orchestrate` (skill) | Runs task files through build → review → PR → triage. Start here for any task. |
+| `task-critic` (agent) | Reads a task file against the tree before any builder. Symbols exist, acceptance matches scope, criteria are testable. |
 | `builder` (agent) | One task, in a worktree. Acceptance tests first. Never evades a control. |
 | `boundary-reviewer` (agent) | Live rules and this project's architectural seams. Reports; never edits. |
 | `reviewer` (agent) | Red-then-green proof, correctness, tests, maintainability. Owns `review.md` / `review.json`. |

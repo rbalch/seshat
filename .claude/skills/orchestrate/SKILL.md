@@ -15,6 +15,7 @@ ORCHESTRATOR (you, on develop, never inside a worktree)
   │  for each task, in dependency order:
   │
   │   ┌──────────────────────────── one task ─────────────────────────────────┐
+  ├──▶│ task-critic (root)   task file vs the tree it names → CLEAN or human    │
   ├──▶│ builder (worktree)   codegraph init → acceptance tests RED → impl GREEN │
   ├──▶│ boundary-reviewer    live rules + seams, in its OWN detached checkout   │
   ├──▶│ reviewer             red-then-green proof, correctness, tests, shape    │
@@ -50,6 +51,19 @@ Then confirm the starting state:
   Do not build on an unmerged branch. Report it and stop at that task.
 - No task in the batch is `in_progress` from another session. If one is, skip it and
   say so.
+
+Then, **for each task, before its builder exists**, dispatch `subagent_type: task-critic`,
+`model: sonnet`, in the root checkout — no worktree, it is read-only. Brief: the task file
+path, and that its report is findings or `CLEAN`. It checks that every symbol the task
+names exists, that no acceptance bullet contradicts the task's own scope, and that every
+bullet can be written as a test that goes red here. Five of the findings in
+`docs/ledger-findings.md` are task-file defects caught after code existed; this is the
+minute of reading that would have caught each one first.
+
+- `CLEAN` → dispatch the builder.
+- Findings → **stop and take them to the human.** A task file changes only by their
+  decision, then you commit the correction on `develop` and dispatch. You do not fix the
+  task file yourself; your own reading is the least-reviewed input in the loop (F-15).
 
 ## 1. Builder dispatch
 
@@ -175,11 +189,25 @@ On approval, in the worktree, by you or by the builder under your instruction:
 
 1. `make check` green, tree clean.
 2. **Squash to one commit.** `git reset --soft $(git merge-base develop HEAD)` then one
-   commit. The message is `<type>(T-NN): <title>` with a body that says **what changed
-   and why**, in prose a reviewer on GitHub reads cold: the goal, the approach, anything
-   non-obvious, the acceptance evidence, and what a human should check by hand. The
-   review rounds do not appear; the red-then-green proof is summarised in one line.
-3. Push the branch. Open the PR with `gh pr create`, body from the commit message.
+   commit. Subject `<type>(T-NN): <title>`. The body is **bullets, not prose, hard cap
+   15 lines**, in exactly this shape:
+
+   ```
+   Changed:
+   - one bullet per file or behaviour, what it does now
+   Why: one line
+   Watch out:
+   - up to 3 bullets, only for things a reader would not guess; omit the section if none
+   Evidence: <N> tests in <file>, make check exit 0, red-then-green on <sha>
+   Check by hand:
+   - anything the human should verify or decide
+   ```
+
+   The review rounds, the fix history, and the story of how a bug was found do not go
+   here. That belongs in `docs/ledger-findings.md`, which already has it. If a bullet
+   needs a paragraph, it is a ledger entry, not a PR bullet.
+3. Push the branch. Open the PR with `gh pr create`, body from the commit message, same
+   cap. Add the task-file link on one line.
    - **Base is `develop`**, unless this task `depends_on` a task whose PR is still open.
      Then the base is that task's branch, and the PR is stacked. GitHub retargets it to
      `develop` when the predecessor merges and its branch is deleted.
