@@ -2,7 +2,6 @@
 id: T-10
 plan: seshat-phase-one
 title: Reflection agent and candidate rules
-status: todo
 depends_on: [T-03, T-08, T-09]
 files:
   - src/seshat/agents/reflection.py

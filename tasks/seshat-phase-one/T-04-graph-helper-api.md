@@ -2,7 +2,6 @@
 id: T-04
 plan: seshat-phase-one
 title: Graph helper API with ast decorator fallback
-status: done
 depends_on: [T-01, T-02]
 files:
   - src/seshat/graph.py

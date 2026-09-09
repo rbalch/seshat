@@ -2,7 +2,6 @@
 id: T-09
 plan: seshat-phase-one
 title: Scan orchestrator
-status: todo
 depends_on: [T-06, T-08]
 files:
   - src/seshat/scan.py

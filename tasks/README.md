@@ -19,7 +19,6 @@ tasks/
 id: T-02
 plan: <plan-slug>                  # tasks/<plan-slug>/, matches docs/specs/<plan-slug>.md
 title: Add the repository layer for orders
-status: todo                       # todo | in_progress | in_review | done | blocked
 depends_on: [T-01]                 # ids that must be merged first; [] if none
 files:                             # what this task expects to create or edit
   - src/seshat/orders/repository.py
@@ -76,8 +75,10 @@ What the human looks at after merge, if anything, and what "correct" looks like.
 - **Acceptance criteria are the test contract.** The builder turns them into tests
   first and watches them fail. If a criterion turns out to encode a wrong assumption,
   that is a planning error to report, not a test to quietly rewrite.
-- **`status` is maintained by the orchestrator**, updated on develop when a task's PR is
-  opened (`in_review`) and merged (`done`). Builders never edit task files.
+- **Status is derived, never stored.** `make tasks PLAN=tasks/<slug>` reads PR state:
+  a merged PR titled `T-NN: …` is `done`, an open one `in_review`, all dependencies
+  done `ready`, otherwise `blocked`. Nobody edits a task file to change its status.
+  Builders never edit task files at all.
 - **Small enough for one review loop.** If a task needs more than roughly one day of
   human-equivalent work, or touches more than one architectural layer, the planner splits
   it.

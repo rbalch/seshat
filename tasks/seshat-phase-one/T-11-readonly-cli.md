@@ -2,7 +2,6 @@
 id: T-11
 plan: seshat-phase-one
 title: Read-only CLI
-status: todo
 depends_on: [T-09, T-10]
 files:
   - src/seshat/cli.py

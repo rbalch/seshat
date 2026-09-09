@@ -29,7 +29,7 @@ tasks list in their `files:` blocks, plus the fixture under `tests/fixtures/`.
 
 Every function, class, method, field, module, fixture, or CLI flag named anywhere in
 **Scope** or **Acceptance** must exist in one of: the fixture target, the files of a
-dependency task whose `status` is `done`, or this task's own `files:` list (in which
+dependency task that `make tasks` reports `done`, or this task's own `files:` list (in which
 case it is being created, and that is fine). Grep for each one. A name that exists
 nowhere is a finding; say where you looked.
 
@@ -54,8 +54,8 @@ right"). Name the bullet and say what a test would need that is not there.
 
 `files:` is the expected footprint. If implementing the scope plainly requires touching a
 file outside it — an upstream model that must widen, a schema column that must change —
-say so now, so it is a declared change rather than a reported deviation. Confirm every
-`depends_on` task is `status: done`; if one is `in_review`, say so, but that is the
+say so now, so it is a declared change rather than a reported deviation. Confirm `make tasks`
+reports every `depends_on` task `done`; if one is `in_review`, say so, but that is the
 orchestrator's gate, not yours.
 
 ## What you do not do

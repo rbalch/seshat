@@ -2,7 +2,6 @@
 id: T-13
 plan: seshat-phase-one
 title: Spark smoke script and integration tests
-status: todo
 depends_on: [T-08]
 files:
   - scripts/smoke_codeact.py

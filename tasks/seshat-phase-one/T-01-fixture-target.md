@@ -2,7 +2,6 @@
 id: T-01
 plan: seshat-phase-one
 title: Fixture target repo with committed codegraph index
-status: done
 depends_on: []
 files:
   - tests/fixtures/target/**

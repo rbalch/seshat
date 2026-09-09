@@ -1,4 +1,4 @@
-.PHONY: help build init sync shell up down views views-check governance controls lint test check
+.PHONY: help build init sync shell up down views views-check governance controls lint test check tasks
 
 .DEFAULT_GOAL := help
 
@@ -92,3 +92,7 @@ check: ## The single gate: controls -> views --check -> governance -> tests
 	$(MAKE) views-check
 	$(MAKE) governance
 	$(MAKE) test
+
+PLAN ?=
+tasks: ## Live task status for $(PLAN), derived from PR state (make tasks PLAN=tasks/<slug>)
+	@uv run python scripts/task-status.py $(PLAN)

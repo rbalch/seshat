@@ -2,7 +2,6 @@
 id: T-05
 plan: seshat-phase-one
 title: Verifier runner with tautology gate
-status: done
 depends_on: [T-03, T-04]
 files:
   - src/seshat/verify.py

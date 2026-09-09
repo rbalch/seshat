@@ -27,7 +27,7 @@ ORCHESTRATOR (you, on develop, never inside a worktree)
   ├─ triage every finding        Bin 1 / Bin 2 / Bin 3, orchestrator-only
   ├─ log sightings               docs/ledger-findings.md, on develop
   ├─ Bin 2 at three sightings?   dispatch control-author
-  └─ mark the task in_review; done when the PR merges
+  └─ status is derived: open PR = in_review, merged = done (`make tasks`)
 ```
 
 ## 0. Before dispatching anything
@@ -46,11 +46,13 @@ Then confirm the starting state:
 
 - You are on `develop`, the tree is clean, and `make check` is green. Starting on a red
   gate means you cannot tell which failures a task caused.
-- Every task's `depends_on` resolves to a task with `status: done`, or to a task in this
-  batch that you will run first. **A dependency that is still `in_review` means wait.**
-  Do not build on an unmerged branch. Report it and stop at that task.
-- No task in the batch is `in_progress` from another session. If one is, skip it and
-  say so.
+- Run `make tasks PLAN=tasks/<slug>`. Status is **derived from PR state**, never
+  stored in the task file: a merged `T-NN:` PR is `done`, an open one is `in_review`,
+  all dependencies done is `ready`, anything else is `blocked`. Build only `ready`
+  tasks. **A dependency that is still `in_review` means wait.** Do not build on an
+  unmerged branch. Report it and stop at that task.
+- No `ready` task already has a branch or worktree from another session. If one does,
+  skip it and say so.
 
 Then, **for each task, before its builder exists**, dispatch `subagent_type: task-critic`,
 `model: sonnet`, in the root checkout — no worktree, it is read-only. Brief: the task file
@@ -212,8 +214,8 @@ On approval, in the worktree, by you or by the builder under your instruction:
      Then the base is that task's branch, and the PR is stacked. GitHub retargets it to
      `develop` when the predecessor merges and its branch is deleted.
    - Title `T-NN: <title>`. Link the task file and the spec.
-4. Back on `develop`: set the task's `status: in_review`, commit that with the ledger
-   changes from step 5 as `chore(T-NN): triage and status`.
+4. Back on `develop`: commit the ledger changes from step 5 as `chore(T-NN): triage`.
+   Do not touch the task file; the open PR *is* its status.
 5. Remove nothing. The worktree stays until the PR merges, in case of review comments
    from the human.
 
@@ -254,7 +256,7 @@ failure available here.
 
 ## 7. Next task, and exit
 
-Move to the next task whose dependencies are `done`. A task that depends on one now
+Run `make tasks` again and move to the next `ready` task. A task that depends on one now
 `in_review` **waits**: report that the batch is blocked on the human merging the PR and
 stop. Do not stack a build on top of an unreviewed branch.
 

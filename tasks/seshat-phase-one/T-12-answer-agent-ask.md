@@ -2,7 +2,6 @@
 id: T-12
 plan: seshat-phase-one
 title: Answer agent and seshat ask
-status: todo
 depends_on: [T-11]
 files:
   - src/seshat/agents/answer.py
