@@ -56,7 +56,12 @@ class Unit:
     kind: UnitKind
     start_line: int
     end_line: int
-    ast_hash: str
+    # `None` means the unit's file or symbol could not be found on the last
+    # attempt to hash it — see `seshat.units.ast_hash` and T-06's contract
+    # note: a `None` hash is exactly what drives a unit to `status='vanished'`
+    # in `sync_units`, so the type has to admit it rather than force a sentinel
+    # string into a column that means "no hash computed".
+    ast_hash: str | None
     inbound_calls: int
     first_seen_run: str
     last_seen_run: str
