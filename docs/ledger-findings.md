@@ -784,8 +784,14 @@ recorded here so they are not rediscovered later.
   `build_queue` forever with no path back. Fixed by building the row from the prior one
   and upserting `ast_hash=None`, so any real hash compares unequal and recovery always
   lands in `changed`.
-- **Sightings:** 1. It occurred in two branches of one function, but that is one cause in
-  one task, so it counts once — see the same-batch rule.
+- **Sightings:** **2.** It occurred in two branches of one function, but that is one cause
+  in one task, so it counts once — see the same-batch rule. **Second sighting 2026-09-09,
+  T-08:** `Ledger.set_claim_status` could not write `retries` at all, so a claim moved to
+  `refuted` after a retry could not record that a retry had happened — the same shape one
+  column over, in the same method, found by `task-critic` before dispatch this time rather
+  than by a reviewer after code existed. Fixed in PR #8 by giving the method a
+  `retries: int | None = None` parameter. At a third sighting this is a serious graduation
+  candidate: the claim is narrow, structural, and a machine could plausibly check it.
 - **Action:** soft — both branches fixed in PR #7, each pinned by a test proven red first.
   No control.
 - **Notes:** The checkable claim is narrower than the family it belongs to and worth
@@ -819,7 +825,15 @@ recorded here so they are not rediscovered later.
   deliberately not touching the sibling branch. The code reviewer then wrote a test
   against that untouched branch and found the identical permanent-stuck bug still live.
   Both misses came from reading; both catches came from executing.
-- **Sightings:** 1
+- **Sightings:** **2.** **Second sighting 2026-09-09, T-08:** asked to re-review the fix
+  round, the boundary reviewer resolved one of the three deltas — the regression test for
+  `set_claim_status(retries=None)` — without running the mutation, writing that it "did not
+  need to re-run the mutation myself" because the test's assertion "directly encodes the
+  exact contract." That reasoning is correct, and it is still a hand-trace standing in for
+  an execution. It cost nothing here only because the code reviewer, in its own tree and
+  under an explicit instruction to re-plant it, did run the mutation and confirmed the red.
+  The pattern holds: reviewers reach for reading whenever the reading looks conclusive, and
+  the reading looks conclusive most often precisely when a test is short.
 - **Action:** soft — noted. Both defects fixed inside PR #7 with red proofs. No control;
   this is about how the loop is run, not about code.
 - **Notes:** Both reviewer briefs in this repo already say "verify by execution, not by
@@ -918,8 +932,14 @@ recorded here so they are not rediscovered later.
   `src/seshat/ledger/store.py` although `set_candidate` is confirmed absent and
   `flag_candidates` cannot be written without it; (5) `depends_on: [T-03]` declared neither
   the T-09 coupling that §5 creates nor T-08.
-- **Sightings:** 1 for the multi-defect shape. **As a planning defect, the sixth** — after
-  `F-1`, `F-11`, `F-22` and the two the ledger already counts there.
+- **Sightings:** **2** for the multi-defect shape. **As a planning defect, the seventh** —
+  after `F-1`, `F-11`, `F-22` and the two the ledger already counts there. **Second
+  sighting 2026-09-09, T-08:** the critic returned five findings against T-08 too — a
+  ledger column with no typed writer (`F-20`), an inverted external-tool claim (`F-25`),
+  an acceptance criterion nothing could falsify, an ambiguous identifier rule where only
+  one reading satisfied acceptance, and a return type with no declared owning module.
+  Counted as a second sighting of the same shape rather than a new finding: T-08 and T-10
+  come from one plan and one planner, which is one cause, per the same-batch rule.
 - **Action:** soft — the human decided on `develop` in `8c6e478`: `depends_on` widened to
   `[T-03, T-08, T-09]`, and scope §3 rewritten to batch-membership-only with the redundant
   clause deleted and the absence of a ledger-wide lookup stated. Defects (1) and (4) were
@@ -944,3 +964,141 @@ recorded here so they are not rediscovered later.
   writes an acceptance test against its own invention — the F-23 failure mode, a green
   test that pins whatever the code happened to do. If T-10 dispatches with that still open,
   expect it back as a review finding.
+
+### F-25 — a task file claimed an external tool's behaviour was "verified" and had it backwards
+
+- **Date:** 2026-09-09
+- **Task:** T-08
+- **Bin:** 2
+- **Claim:** T-08's scope specified `CODEGRAPH_MCP_TOOLS=node,callers,callees,search,impact`
+  and said, in the same bullet, that codegraph 1.6.0 "lists `codegraph_explore` alone by
+  default; that env var **adds** the five named above (verified against the installed
+  binary)." The parenthetical is false and the mechanism is inverted: the env var
+  *replaces* the default allowlist rather than extending it. Under the value the task
+  prescribed, `codegraph_explore` is absent from the tool list entirely — so the next
+  clause of the same bullet, "tell the model in the prompt to call `codegraph_explore`
+  first," instructed the worker to call a tool its own configuration had removed. The
+  `task-critic` caught it by starting the binary and sending `tools/list`; the
+  orchestrator re-ran the probe both ways before taking it to the human, and confirmed
+  five tools without `explore` and six with it.
+- **Sightings:** 1.
+- **Action:** soft — the human chose to add `explore` to the list; corrected on `develop`
+  in `b919caf`, with the replace-not-extend mechanism written into the task so the next
+  reader cannot re-lose it. No control.
+- **Notes:** The checkable claim: **a task file that says a fact was "verified" must name
+  how, or the word is decoration.** This is a different failure from `F-24`'s five, which
+  were omissions and ambiguities — nobody had asserted those either way. Here a specific,
+  falsifiable, empirically-checkable claim was written down as already-checked and was
+  wrong, which is strictly worse: the word "verified" is exactly what stops the next
+  reader from checking. It survived into a dispatched task file because no stage before
+  `task-critic` existed to run the one command that refutes it.
+  A machine cannot check the general case, but the narrow case is automatable and cheap:
+  any task-file claim about an installed tool's observable behaviour can be turned into a
+  command. That is the same automation `F-1` floated and `F-24` floated again, now on its
+  third mention with nobody having built it. Worth noting the failure direction — an
+  agent told to call an unavailable tool does not crash; it improvises, and the run
+  degrades quietly. Nothing in the acceptance criteria would have caught it, because the
+  MCP attachment is live-only and the hermetic suite never exercises it.
+
+### F-26 — a mutation survived forty-nine tests, and only mutation testing found the gap
+
+- **Date:** 2026-09-09
+- **Task:** T-08
+- **Bin:** 2
+- **Claim:** T-08 extended `Ledger.set_claim_status` with `retries: int | None = None`,
+  contracted to leave the column untouched when `None`. The implementation was correct.
+  The code reviewer mutated it so `None` wrote `0` instead, and the mutation passed the
+  entire relevant suite — 49 tests across `tests/ledger/test_store.py`,
+  `test_store_fixes.py` and `tests/agents/test_worker.py` — with nothing going red. New
+  behaviour had shipped with no test able to distinguish it from a regression.
+- **Sightings:** 1 for this mechanism.
+- **Action:** soft — fixed in PR #8 by `c45adad`, a test that sets `retries=1`, calls
+  `set_claim_status` with no `retries` kwarg, and asserts the column is still `1`. Both
+  the builder and the code reviewer independently re-planted the mutation and confirmed
+  `AssertionError: assert 0 == 1`. No control.
+- **Notes:** The checkable claim: **a new optional parameter whose contract is "does
+  nothing when omitted" needs a test that fails when it does something.** A default-valued
+  parameter is the easy case to leave untested precisely because omitting it is what every
+  existing caller already does — the suite exercises that path constantly and asserts
+  nothing about it, so full green says only that nothing crashed.
+  What is worth recording is the method, not the defect. `F-21` logged that this project's
+  reviewers miss things by reading and catch things by executing; this is the sharper
+  version — the reviewer executed the *suite*, which was green, and learned nothing. Only
+  mutating the implementation and re-running told it anything. Mutation testing was used
+  here because the brief demanded it per-criterion, and it earned its cost on the first
+  criterion it touched. The same round also confirmed the reverse: mutations against the
+  token-accounting rewrite (constant return, fixed increment, no-op middleware) all went
+  correctly red, so the acceptance test that `F-24`-adjacent review had flagged as
+  unfalsifiable is now demonstrably falsifiable.
+
+### F-27 — test scaffolding installed on the production path, defeating a framework type check
+
+- **Date:** 2026-09-09
+- **Task:** T-08
+- **Bin:** 2
+- **Claim:** To satisfy an acceptance criterion requiring a real token count, the builder
+  wrapped the LLM client in `_CountingLLM`, a duck-typed proxy installed by overriding
+  `Worker.set_llm` — for every client, production included, not only test doubles. It
+  justified this by checking that NOOA's `set_llm` and the runtime's `_llm` lookup do no
+  `isinstance` check. That check was true and insufficient:
+  `nooa/runtime/actor.py:197` `_resolve_provider_formatter`, called on every render, does
+  `isinstance(llm_client, ResponsesClient)` to choose the wire-format formatter. A wrapped
+  client is a different class, so that branch is always `False` and the runtime silently
+  falls back to the default formatter. Inert today — `config.py` only builds
+  `CompletionClient` — but point any of the four generation points at a Responses-API
+  client and it sends the wrong wire format with no exception raised.
+- **Sightings:** 1 for this mechanism. Belongs to the false-success family (`F-4`, `F-10`,
+  `F-13`) by direction, and is logged separately for the same reason `F-18` and `F-20`
+  were: the family's graduation was refused on 2026-09-08 because no single mechanism in
+  it had recurred three times, and padding that count is the failure the refusal exists to
+  prevent.
+- **Action:** soft — fixed in PR #8 by `372f427`. The wrapper is gone; token accounting is
+  now an `llm_call` middleware handler that observes `ctx.response.usage` after
+  `await nxt(ctx)` and never replaces the client. Pinned by a test that builds a `Worker`
+  around a real `ResponsesClient` and asserts NOOA's own `_resolve_provider_formatter`
+  returns a `ResponsesProviderFormatter`. No control.
+- **Notes:** The checkable claim: **a mechanism that exists to make something testable
+  must not sit on the path the production object travels.** The tell is generic — a proxy,
+  a subclass, or a monkeypatch installed unconditionally in a constructor, where the
+  motivation named in the docstring is observation. Observation has a supported seam in
+  most frameworks (here, middleware); substitution does not.
+  Two things are worth keeping. First, the builder's docstring asserted the wrapper "stands
+  in for the real client everywhere the runtime touches it" — a universal claim resting on
+  two call sites it had actually read. The defect lived in the third. Second, the fix was
+  found by *not* prescribing one: the orchestrator forwarded the finding with the evidence
+  and explicitly refused to name a mechanism, having twice before specified fix shapes that
+  were wrong (`F-23`). The builder chose middleware over the `__class__`-proxying hack the
+  reviewer had suggested, and while inside it found a second defect nobody had reported —
+  the token meter reset on `set_llm` rather than per turn, so `tokens_used` accumulated
+  across a Worker's whole lifetime. A prescribed one-line fix would have shipped that.
+
+### F-28 — open: a second unguarded read on the same crash path, in a module the task did not own
+
+- **Date:** 2026-09-09
+- **Task:** T-08
+- **Bin:** 2
+- **Claim:** `_read_span` in `worker.py` caught only `OSError`, so a non-UTF-8 source file
+  crashed a worker turn with an uncaught `UnicodeDecodeError`. Fixed. But proving that fix
+  red, the builder found `Graph.decorators()` (`src/seshat/graph.py:253`) reaches the same
+  crash by a second route: its ast-fallback branch calls `source_path.read_text()` with no
+  guard at all, and `unit_brief()` calls it unconditionally. The orchestrator confirmed the
+  unguarded read and noted `ast.parse` on the following line is exposed the same way; the
+  code reviewer independently reproduced the crash by corrupting a fixture file.
+- **Sightings:** 1.
+- **Action:** **open.** `graph.py` is outside T-08's declared `files:` and belongs to a
+  task that is `done`, so nothing was patched. Needs a follow-up task. Recorded in PR #8's
+  "Check by hand".
+- **Notes:** The builder did the right thing twice over: it reported the out-of-scope gap
+  rather than patching someone else's module, and it narrowed its own regression test to
+  call `_read_span` directly rather than through `unit_brief()`. The second choice is the
+  interesting one. An end-to-end test would still be red today, which leaves two bad
+  options — weaken the test until it passes, or patch outside the footprint — and the
+  narrow test takes neither. The code reviewer was asked to judge whether this hid the
+  finding and concluded it did not, because the gap is stated in the commit message, in a
+  code comment, and in the PR body.
+  The checkable claim worth watching: **when a failure mode is fixed at one call site, the
+  other call sites reaching it need naming.** One unguarded `read_text` was fixed and an
+  identical one three modules away was not, and only an accident of how the red proof was
+  constructed surfaced it. This is adjacent to `F-20`, where a fix to one branch of a
+  function left the identical defect live in its sibling and a reviewer scored the delta
+  5/5 for correctly not touching it.

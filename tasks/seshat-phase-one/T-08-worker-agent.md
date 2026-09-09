@@ -2,7 +2,6 @@
 id: T-08
 plan: seshat-phase-one
 title: Worker agent
-status: todo
 depends_on: [T-05, T-07]
 files:
   - src/seshat/agents/worker.py
