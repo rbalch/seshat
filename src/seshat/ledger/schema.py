@@ -41,7 +41,11 @@ CREATE TABLE IF NOT EXISTS units (
     kind TEXT NOT NULL,
     start_line INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
-    ast_hash TEXT NOT NULL,
+    -- Nullable: `None`/NULL is a unit whose file or symbol could not be found
+    -- the last time it was hashed (see seshat.ledger.models.Unit.ast_hash and
+    -- T-06) — the trigger for status='vanished', not a value to fake with a
+    -- sentinel string.
+    ast_hash TEXT,
     inbound_calls INTEGER NOT NULL DEFAULT 0,
     first_seen_run TEXT NOT NULL,
     last_seen_run TEXT NOT NULL,
