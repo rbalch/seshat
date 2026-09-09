@@ -3,7 +3,7 @@ id: T-10
 plan: seshat-phase-one
 title: Reflection agent and candidate rules
 status: todo
-depends_on: [T-03]
+depends_on: [T-03, T-08, T-09]
 files:
   - src/seshat/agents/reflection.py
   - src/seshat/candidates.py
@@ -29,8 +29,11 @@ and structural patterns that hold across three or more units with no exception g
    report structural patterns that recur, name exceptions honestly.
 3. `run_reflection(agent, ledger, run_id, batch_size=40) -> ReflectionSummary`:
    pages `ledger.confirmed_claims`, calls `reflect` per batch, and for each concept
-   drops any evidence id that is not in the batch and not `confirmed`, then
-   `ledger.add_concept`. A concept left with no evidence is discarded and counted.
+   keeps an evidence id only if it is among the claims in the current batch, dropping
+   every other id. (`confirmed_claims` returns only `confirmed` rows, so batch
+   membership already implies confirmed; there is no ledger-wide lookup for ids
+   outside the current page.) Then `ledger.add_concept`. A concept left with no
+   evidence is discarded and counted.
 4. `src/seshat/candidates.py`, `flag_candidates(ledger, patterns, run_id) -> int`:
    for each pattern, sightings = number of distinct `unit_id`s among its cited
    claims that are `confirmed`; if sightings ≥ 3 and `exceptions` is empty, set
