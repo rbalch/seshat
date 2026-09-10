@@ -2012,3 +2012,135 @@ recorded here so they are not rediscovered later.
   sighting this is a real control candidate, and the control would be the same one either
   time: assert that every hand-maintained path list in the repo's config either resolves
   to files that exist or is derived. Holding at two.
+
+### F-47 — the fixture bytes a task file handed the builder did not do what the task said
+
+- **Date:** 2026-09-10
+- **Task:** T-14
+- **Bin:** 2
+- **Claim:** T-14's Context offered one byte string as "bytes that reproduce the crash"
+  and the acceptance section required a test where `ast_hash` "reports unreadable". The
+  bad byte in those bytes sits inside a `#` comment. It does make today's `read_text()`
+  raise, which is the crash — but after the fix, when `ast.parse` is handed the bytes,
+  it parses cleanly and the unit hashes normally. A builder reusing the one example the
+  task provided would have written the unreadable test against source that is perfectly
+  readable, watched it fail for a reason that looks like a bug in their own code, and
+  debugged the wrong thing.
+- **Sightings:** **`F-25`: 4.** After T-08's inverted `CODEGRAPH_MCP_TOOLS` claim, CT-02's
+  `PostToolUse` output channel (`F-40`), and DEC-1's false ruff `S102` rationale (`F-44`).
+  **As a planning defect, the ninth** — after `F-1`, `F-22`, `F-24`, `F-29`, `F-34`,
+  `F-38`.
+- **Action:** soft — caught by the task-critic before a builder existed. The critic ran
+  `ast.parse` on both byte strings in a live interpreter rather than reasoning about
+  them; the orchestrator reproduced the same two-line probe before taking it to the
+  human. The task file now carries three byte strings, each labelled with the test it
+  belongs to and a note that they are not interchangeable. No control.
+- **Notes:** `F-44` settled at three sightings that this family gets no CI control,
+  because no machine can check whether a paragraph of English is true about CPython. Its
+  proposed remedy was the habit: **turn the claim into a command and run it.** This is
+  the first sighting where that habit was actually in place beforehand — the task-critic
+  brief told the critic to verify the encoding claim "by running python, not by
+  reasoning" — and it worked on the first outing, which is the cheapest possible place
+  for this defect to be found.
+  The sharper observation is about *which* claim was wrong. The task's headline claim,
+  that `ast.parse` on bytes honours a PEP 263 declaration, was true and had been verified
+  in planning and written into an ADR. What nobody checked was the smaller, duller claim
+  sitting three lines away: that this specific example demonstrates the failure. The
+  verified claim inoculated the unverified one next to it. Worth watching for: a
+  document that shows its working for the interesting claim and gets believed on the
+  boring one.
+
+### F-48 — a fallback branch nothing could see being deleted, found by mutation again
+
+- **Date:** 2026-09-10
+- **Task:** T-14
+- **Bin:** 2
+- **Claim:** `Graph.decorators`' ast fallback gained `if raw is None: return []` for the
+  case where the source cannot be read at all. No test constrained it. The code reviewer
+  mutated it to `return None` and the whole suite stayed green, so the branch could have
+  shipped returning anything.
+- **Sightings:** **As the untested-guard / mutation-testing family, 4** — `F-26` (T-08),
+  `F-38` (CT-01), `F-45` (DEC-2), this. Third sighting was reached at `F-45`; the rule of
+  three was applied at this one.
+- **Action:** fixed in PR #16 by `0c35553`, a test that drives the branch through a real
+  `OSError` — the indexed node's `file_path` is a directory, so `read_bytes()` raises
+  `IsADirectoryError` — proven red under the reviewer's own mutation and green after.
+  Both the builder and the code reviewer re-planted the mutation independently, and the
+  reviewer used a distinguishing mutant (`return ['MUTATED']` rather than `return None`)
+  to prove the test reaches *this* branch and not an earlier one that also returns `[]`.
+  A control-author was dispatched on the rule of three; its ruling is recorded below.
+- **Notes:** Two things this sighting adds to the three before it. First, the defect was
+  in the *new* half of a change whose old half was carefully tested — the `SyntaxError`
+  branch beside it had a test, the `OSError` branch did not, because the task's
+  acceptance criteria named the syntax case and not the read case. The suite mirrors the
+  criteria, so a criterion that omits a branch produces a branch with no test, every
+  time. Second, the reviewer's choice of mutant is itself the technique worth copying: a
+  mutation that returns a *distinguishable wrong value* proves which branch the test
+  reached, where `return None` alone would not have.
+  This family has now found four of the more serious defects in this project and has done
+  it entirely through a brief line rather than a gate. `F-45` predicted that if any
+  single practice earns promotion from this log it is this one; four sightings later it
+  still has not needed a control to work.
+
+### F-49 — Bin 3: a comment describing a column's meaning drifted when the meaning widened
+
+- **Date:** 2026-09-10
+- **Task:** T-14
+- **Bin:** 3
+- **Claim:** The SQL comment above `units.ast_hash` in `src/seshat/ledger/schema.py` said
+  a NULL there means the symbol vanished. After this task a NULL also means the source
+  was unreadable. The comment was not wrong when written and nothing enforces it.
+- **Sightings:** **As `F-32` (a docstring naming a lock that never existed), 2.**
+- **Action:** fixed in PR #16 by `6cf2fa5`, comment only. No control, and there should
+  not be one.
+- **Notes:** Logged as Bin 3 rather than Bin 2 deliberately. A machine can check that a
+  comment exists; it cannot check that a sentence of English still describes what the
+  code does. The only mechanical version — forbid prose comments near schema — would be
+  worse than the disease. What makes this pair mildly interesting is that both sightings
+  are comments that were *true when written*, which is the harder kind to catch than a
+  comment that was always wrong.
+
+### F-50 — harness: the weak red proof recurred, and the stub meant to prevent it did not
+
+- **Date:** 2026-09-10
+- **Task:** T-14
+- **Bin:** unbinned harness finding — second sighting of `F-43`
+- **Claim:** The builder was briefed with `F-43`'s lesson explicitly — that a red which
+  is only "module not found" proves nothing — and it responded by creating
+  `src/seshat/source.py` as a stub raising `NotImplementedError` so the new suite would
+  fail on behaviour. That worked for `tests/test_source.py`. It did not help
+  `tests/test_units.py`, which still failed at *collection* with
+  `ImportError: cannot import name 'UNREADABLE'`, because the sentinel the tests import
+  did not exist yet. The most important criteria in the task — unreadable versus
+  vanished, first-sight recovery, stale claims — were behind that uninformative red.
+- **Sightings:** **2** — `F-43` (T-12), this.
+- **Action:** soft — the code reviewer was briefed to treat the weak red as the actual
+  work of the review, and did: it checked out the red SHA and reasoned per-assertion
+  against the unpatched `units.py` to confirm each new assertion would fail for a domain
+  reason, then mutation-tested the sentinel guard at HEAD. No fix to the code.
+- **Notes:** The interesting part is that the remedy was applied and only half worked. A
+  stub cures a missing *module*; it does not cure a missing *name* that the tests import
+  from an existing module, and any task introducing a new constant, enum member or
+  status value hits the second shape. Curing it fully would mean stubbing every new
+  symbol before the red — which starts to be implementation written before the tests it
+  is meant to fail against, and is not obviously worth it.
+  So the honest reading, two sightings in, is that `F-43`'s real remedy was never the
+  stub; it was the reviewer instruction to mutate per-criterion when the red is uniform.
+  That is what caught the gap on T-12 and it is what did the work here. The stub is a
+  nice-to-have that should not be mistaken for the fix. If a third variant appears, what
+  deserves the decision is the reviewer instruction, not the stub.
+
+- **Ruling on the rule of three (2026-09-10, T-14).** The control-author refused the
+  family and authored something narrower. Its reasoning, which I accept: the general
+  claim — "a branch whose deletion no test notices" — is mutation testing, which `F-38`
+  already rejected as slow and noisy, and four sightings of it working as a brief line
+  is evidence the brief line is the remedy. So no control governs the family. What it
+  did instead was check `F-45`'s narrower candidate against today's tree and find it
+  live: `controls/fitness/exec_confinement.py` got its 26 tests after `F-45`, but its
+  sibling `controls/fitness/view_naming.py`, which backs `DEC-0` and has gated every
+  build since T-01, still had none. That is the same defect `F-45` logged, still
+  present, in the one place where an untested branch silently disables enforcement for
+  everybody. `DEC-3` therefore says only this: every module under `controls/fitness/`
+  has a non-empty test module under `tests/controls/`. Presence, not behaviour — it
+  cannot fire on correct code. It ships in its own PR, because a rule change is a diff a
+  human reviews, never a side effect of a triage commit.
