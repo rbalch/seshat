@@ -1768,3 +1768,77 @@ recorded here so they are not rediscovered later.
   Also worth recording: the builder agreed with the reversal unprompted and named the
   accepted cost itself, and both reviewers independently endorsed the removal over their
   own earlier positions. Nobody defended their previous answer.
+
+### F-40 — the acceptance suite shelled out to a binary nobody had declared, and only CI knew
+
+- **Date:** 2026-09-10
+- **Task:** T-11
+- **Bin:** 2
+- **Claim:** A test must not depend on an executable that is not a declared dependency of
+  the project. `src/seshat/cli.py` called `run_scan` without passing the `indexer`
+  parameter that `src/seshat/scan.py` exposes precisely so callers can substitute one, so
+  every scan-driving test in `tests/test_cli.py` spawned the real `codegraph` binary.
+  Eleven tests went green locally and 3 failed / 8 errored on the runner with
+  `[Errno 2] No such file or directory: 'codegraph'`. `codegraph` is an npm package
+  installed on the developer's machine and nowhere in `pyproject.toml`.
+- **Sightings:** 1. Belongs to the false-success family (`F-4`, `F-10`, `F-13`, `F-27`,
+  `F-31`) by failure direction: the suite reported success on the strength of an
+  accident of the environment.
+- **Action:** soft — fixed in PR #12. `indexer` is now a module-level patchable seam in
+  `cli.py` alongside `worker_factory` and `reflect_after_scan`, passed explicitly to
+  `run_scan`; the default is still the real indexer and the reviewer identity-checked
+  that a production `seshat scan` is unchanged. The `IndexFailed` → exit 2 test was
+  rewritten to drive the new seam and was proven to survive a mutation of the mapping.
+  Verified by running the suite under a `PATH` with `codegraph` genuinely unresolvable,
+  by the builder and then independently by the reviewer. No control.
+- **Notes:** The seam already existed and `tests/test_scan.py` already used it at every
+  call site — T-09 built `indexer` injection for exactly this reason. The defect was one
+  caller not using the affordance its own dependency provides, which is why nobody
+  spotted it: the CLI looked like it was calling `run_scan` correctly, and it was, minus
+  one keyword argument whose absence is invisible at the call site.
+  The checkable claim worth keeping is narrow: **a subprocess invocation reachable from a
+  test must name a binary that is either a declared dependency or injected through a
+  seam.** A script could walk the test suite's reachable call graph for `subprocess.run`
+  and check argv[0] against `pyproject.toml` plus an allowlist. That is real work for one
+  sighting, and CI already catches this class the moment it happens — which is the
+  argument against a control, not for one. Holding at one.
+  Checked while here, at the orchestrator's request: `_commit_sha` (`src/seshat/scan.py:75`)
+  also shells out, to `git rev-parse HEAD`, on every scan including in tests. The reviewer
+  confirmed by execution — `git` and `codegraph` both stripped from `PATH` — that it fails
+  soft, catching `OSError` and returning `'nogit'`. Not a second landmine, but it is the
+  same shape one handler away from being one.
+
+### F-41 — harness: every agent in the loop verifies by execution, on the same machine
+
+- **Date:** 2026-09-10
+- **Task:** T-11
+- **Bin:** unbinned harness finding
+- **Claim:** `F-40` shipped through a task-critic, a builder, two reviewers in two
+  separate checkouts, two full review rounds, four independent `make check` runs and an
+  explicit instruction to both reviewers to verify by execution rather than by reading —
+  and was caught by CI thirty seconds after the PR opened. Every one of those agents ran
+  the suite on the developer's machine, where `codegraph` is installed. The loop's
+  central quality mechanism has a blind spot exactly the size of the difference between
+  that machine and the runner, and separate checkouts do nothing about it because the
+  thing being shared is the host, not the tree.
+- **Sightings:** 1.
+- **Action:** soft — noted. Fixed the defect, not the loop.
+- **Notes:** This is the first finding in the log where the harness did not merely miss
+  something but was *structurally incapable* of catching it, and it is worth being precise
+  about why. `F-2`'s fix — a separate checkout per reviewer — was aimed at agents
+  contaminating each other's evidence. It works. It has nothing to say about agents
+  sharing an environment that is itself wrong, and reading the two problems as one would
+  be a mistake: more isolation of the same kind buys nothing here.
+  What actually caught it was the cheapest thing in the pipeline. That is the useful
+  observation, and it cuts against the instinct this project keeps having, which is to
+  answer a miss with another agent. CI is not a better reviewer; it is a *differently
+  situated* one, and situation is what was missing. The same logic says a third reviewer
+  would have found nothing.
+  Two responses are available and neither is obviously right yet. Ask reviewers to run
+  the suite under a stripped environment as a named verification — cheap, but only ever
+  catches the hazard someone thought to strip. Or open the PR earlier and treat CI's first
+  run as an input to review rather than a gate after it — which changes what a PR means
+  and would need the human to want it. Recorded as an open question, not a change. Watch
+  for a second sighting where the environment difference is subtler than a missing binary:
+  a version skew, a locale, a filesystem case rule. That one will not announce itself with
+  `Errno 2`.
