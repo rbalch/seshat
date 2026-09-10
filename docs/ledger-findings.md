@@ -1959,3 +1959,56 @@ recorded here so they are not rediscovered later.
   not fixed here — `ask`'s own flags are wired correctly and verified. Recorded so it is
   not rediscovered: it needs its own task, and it is the second time a CLI option has
   been captured but not applied.
+
+### F-45 — harness: a second task drew zero review findings, and both reviewers proved it
+
+- **Date:** 2026-09-10
+- **Task:** T-13
+- **Bin:** n/a — harness finding
+- **Claim:** Second sighting of `F-36`. Both reviewers returned 5/5 with no findings at
+  all, and unlike a quiet pass this one carries proof: the boundary reviewer planted
+  `eval('1+1')` in `scripts/smoke_codeact.py` and watched DEC-2's control go red at
+  `scripts/smoke_codeact.py:216`, and the code reviewer independently reproduced both
+  mutation kills the builder claimed rather than trusting the report.
+- **Sightings:** **As `F-36`, 2.**
+- **Action:** none. Logged as evidence about where the loop's cost now sits.
+- **Notes:** The difference between this and `F-36` is worth keeping. Both tasks drew zero
+  findings, but this one was preceded by a task-critic stop that changed the task file
+  twice before a builder existed — one contradiction between two acceptance bullets, and
+  two of four integration checks that already existed as live tests. Zero review findings
+  after a corrected brief is a different result from zero review findings after an
+  uncorrected one, and the cheap reading — "reviews are finding nothing, cut a reviewer" —
+  would be the wrong one to draw from two data points where the expensive step moved
+  earlier rather than disappeared.
+  Both reviewers also answered "is this covered?" separately from "does this pass?",
+  which was written into their briefs because `F-42` was found only by asking the first
+  question. That is the second brief in a row to carry it, and it is now worth making a
+  standing line in the `orchestrate` skill rather than a per-task instruction.
+
+### F-46 — the `ty` override include list is a hand-maintained list of paths
+
+- **Date:** 2026-09-10
+- **Task:** T-13
+- **Bin:** 2
+- **Claim:** `pyproject.toml`'s `[[tool.ty.overrides]]` `include` list names four agent
+  modules by path and gained a fifth entry here (`scripts/smoke_codeact.py`) so that
+  `ty`'s `empty-body` diagnostic stops firing on NOOA `...`-body generation points. The
+  suppression is narrow and correct — the boundary reviewer confirmed by execution that
+  removing the entry produces exactly two `empty-body` diagnostics, both on legitimate
+  `@strategy` generation points — but the list is maintained by hand, and nothing checks
+  that its entries still exist or that a new generation-point module was added to it. A
+  file dropped from the list silently regains the diagnostic; a file that disappears
+  leaves a dead entry nobody notices.
+- **Sightings:** **As `F-42`'s generalised claim, 2.** `F-42` was `controls/fitness/exec_confinement.py`'s
+  hand-listed `SCAN_DIRS`, closed by DEC-2 with a derived scan set. Same shape, different
+  tool: a list of paths, maintained by hand, whose drift is invisible because the tool
+  keeps passing.
+- **Action:** none this task. Widening the list was the right call here and the override's
+  own comment invites it.
+- **Notes:** The checkable claim is `F-42`'s and it generalises past controls: **a list of
+  paths that selects which code a check applies to should be derived from a property of
+  the code, not typed out.** Here the property is available — a module containing an
+  `@strategy`-decorated `...` body is exactly the set that needs the override. At a third
+  sighting this is a real control candidate, and the control would be the same one either
+  time: assert that every hand-maintained path list in the repo's config either resolves
+  to files that exist or is derived. Holding at two.
