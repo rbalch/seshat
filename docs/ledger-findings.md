@@ -1345,3 +1345,212 @@ recorded here so they are not rediscovered later.
   implies, and every future task that creates a new module will produce the same weak red.
   If a builder brief ever gets a line about proving each criterion red individually, this
   is the entry that argues for it. One sighting; not yet a change.
+
+### F-37 — the design a human rejected in the brief shipped anyway in the code
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** 2
+- **Claim:** The `task-critic` found a blocker in CT-01's brief: the `declared by this
+  task` exemption, as written, would have swallowed the tool's own worked example. The
+  human ruled, the brief was corrected on `develop` to require that a `files:` entry be
+  "the plausible home" for the name, and the builder was dispatched against the corrected
+  file. The builder then implemented `plausible_home()` as *any* `src/*.py` entry in
+  `files:` exempting *every* signature-shaped name — which, since nearly every real task
+  lists at least one source file, gutted the bucket the same brief calls "the point of the
+  tool". The `after_scan` example the correction was written to protect was reported as
+  `declared by this task` in the shipped code. **The correction was applied to the brief
+  and the rejected behaviour shipped regardless**, one dispatch later.
+- **Sightings:** 1 for this mechanism. Related to `F-30` from the other direction: there a
+  builder overrode a criterion knowingly and correctly; here a builder implemented a
+  criterion faithfully in wording and inverted it in effect.
+- **Action:** soft — caught by the code reviewer, which proved it by deleting the guard
+  clause and watching all 12 acceptance tests pass. The human ruled a second time, this
+  time on the implementation: presence, never plausibility. Fixed in PR #11 by `001112a`,
+  pinned by a test built from the `after_scan` case. The brief on `develop` was rewritten
+  a second time to say "resolves in a listed file — no filename matching, no module-path
+  guessing, no heuristic of any kind", with the date of the ruling.
+- **Notes:** The checkable claim, and it is a real one: **a task-file correction that
+  states a constraint in words like "plausible", "appropriate" or "related" has not
+  actually constrained anything.** The first correction and the shipped bug are both
+  faithful readings of the same sentence. The second correction is checkable because it
+  names a set-membership test a machine could run.
+  This is the strongest argument in the log so far for why the loop's stops matter more
+  than its stages. Two stages read that sentence — the critic that wrote it and the
+  orchestrator that applied it — and neither noticed it had no teeth, because a
+  plausibility rule reads like a rule. What caught it was a reviewer that deleted the code
+  and watched the tests not care. **Test-deletion beat two careful readings**, and the
+  same technique is what found `F-26`.
+  Worth recording the irony plainly, since the ledger is the experiment: the tool this
+  task builds exists to catch defects in task files, and its own task file carried a
+  defect that survived a critic, a human ruling and a correction before a mutation test
+  found it in the code.
+
+### F-38 — a tool's own test suite could not see its central guard being deleted
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** 2
+- **Claim:** Twelve acceptance tests, written first and proven red, all passed with the
+  `declared by this task` membership guard deleted outright. The same sweep later found
+  the membership branch could be weakened from `rel(found.path) in files` to `if files`
+  with all eighteen tests still green. Both are the tool's core decision — the one that
+  separates "the task creates this" from "this name is unaccounted for" — and neither had
+  a test that could distinguish correct from broken.
+- **Sightings:** 1 as stated. **As the mutation-testing family, 2** — after `F-26`, where
+  a mutation survived forty-nine tests and only a deliberate mutation found the gap.
+- **Action:** soft — both pinned in PR #11, each with a test proven red under the exact
+  mutation before the fix landed. No control.
+- **Notes:** The checkable claim: **a branch that decides which bucket a result lands in
+  needs a test per branch, not a test per happy path.** All twelve original tests asserted
+  on reports produced by correct input; none asserted that a *wrong* classification would
+  be noticed.
+  Two sightings now say the same thing about this project's tests: they are written to
+  demonstrate the feature, and a demonstration cannot fail in the interesting direction.
+  At a third sighting this is a genuine control candidate — not "run mutation testing in
+  CI", which is slow and noisy, but something narrower: a reviewer instruction, already
+  informal, that every guard clause introduced by a change must be deleted once and the
+  suite re-run. Both reviewers did that here without being told twice, and it found the
+  two most serious defects in the task.
+
+### F-39 — one function broke three times in three consecutive rounds, each time silently
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** 2
+- **Claim:** `sections()` in `scripts/task-symbols.py` produced a distinct silent
+  content-drop in each of three consecutive fix rounds: (1) no fence awareness at all, so
+  a `##` line inside a fenced example ended a section early and a repeated header
+  overwrote the first; (2) a fence left open at EOF swallowed the rest of the file, report
+  showing a clean `0/0/0/0`; (3) two fences each left open summed to an even count, paired
+  with each other, and dropped a real section header between them with no warning. Every
+  one failed in the same direction — the report said nothing was wrong because the parser
+  never saw the text — and every one was found by a reviewer building adversarial
+  fixtures, never by the suite.
+- **Sightings:** 1 for the repeated-regression shape. All three instances belong to the
+  false-success family (`F-4`, `F-10`, `F-13`, `F-27`, `F-31`) and are counted once here
+  under the same-batch rule: one function, one task, one cause.
+- **Action:** soft — all three fixed in PR #11 (`001112a`, `db9c4f1`, `36ddd10`), each
+  with its own red proof. A factual comment now sits at `sections()` listing the three
+  failures and what each guard is for. No control.
+- **Notes:** The checkable claim is about attention, not code: **when a function breaks
+  twice in the same direction, the next round should attack it rather than review it.**
+  That is what happened — round 3's brief told the reviewer the area was fragile and asked
+  for fixtures rather than reading — and it is why round 3 found something round 2's
+  reading had not.
+  Worth being honest about the cost: four fix rounds on a ~400-line advisory script is a
+  lot of loop for the value. The defensible reading is that parsing semi-structured
+  human-written markdown is genuinely harder than it looks and each round found a real
+  defect. The uncomfortable reading is that the task should have specified the parsing
+  contract precisely enough to test up front, and the brief said "extract backticked
+  spans" as if that were simple. Both are true. If a second task in this plan needs a
+  markdown parser, the brief should name the fence, header and span cases explicitly
+  rather than leaving them to be discovered one review round at a time.
+
+### F-40 — the orchestrator asserted an external tool's contract in a brief, again
+
+- **Date:** 2026-09-10
+- **Task:** CT-02
+- **Bin:** 2
+- **Claim:** CT-02's brief instructed a builder to have the hook "emit its report so the
+  model sees it as feedback on the write", and its acceptance bullet pinned that as "the
+  resolver's report on stdout". The critic found that `PostToolUse` hook output reaches
+  the model through a JSON envelope (`hookSpecificOutput.additionalContext`), not through
+  bare stdout — two hook implementations shipped with the installed Claude Code both use
+  the envelope and never plain text. A hook satisfying the brief literally would have
+  passed every test while the model never saw a word. The brief had hedged on the *input*
+  payload's field names and asserted the *output* channel as settled fact.
+- **Sightings:** **`F-25`: 2.** Same mechanism as T-08's inverted `CODEGRAPH_MCP_TOOLS`
+  claim — a specific, empirically checkable statement about an external tool, written down
+  as known and wrong.
+- **Action:** soft — the human ruled on 2026-09-10 to pin the envelope in the brief on the
+  strength of the plugin evidence, with the evidence labelled second-hand and the builder
+  still required to confirm it against the installed version and say how. The acceptance
+  bullet now asserts on the parsed JSON structure rather than a substring, so a bare
+  `print()` fails it. CT-02 has not been dispatched.
+- **Notes:** `F-25`'s note said the narrow case is automatable: any task-file claim about
+  an installed tool's observable behaviour can be turned into a command. Two sightings
+  now. It also said the word "verified" is what stops the next reader from checking —
+  this brief did something subtler and worse, hedging visibly on one half of a contract
+  while stating the other half flatly, which reads as though the flat half was the part
+  already known.
+  Direction of failure, again: a hook that prints to a channel nobody reads does not fail.
+  It succeeds silently and the feature is simply absent.
+
+### F-41 — harness: `develop` moved under an in-flight worktree, second sighting
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** unbinned harness finding
+- **Claim:** Second sighting of `F-33`. The boundary reviewer's `develop..HEAD` range
+  showed `reflection.py`, `candidates.py`, `store.py` and four ledger entries being
+  deleted — T-10's work, merged onto `develop` after CT-01's branch was cut. The reviewer
+  caught it, recovered the true range with `git merge-base`, reviewed that, and said
+  plainly that the phantom deletions were not attributable to the change under review.
+- **Sightings:** **2** — `F-33` (T-10), this.
+- **Action:** soft — the reviewer self-corrected and the orchestrator's later fix-round
+  briefs named the true base explicitly and told the builder not to rebase. No control.
+- **Notes:** The reviewer recovering unaided is the good news and also the reason this
+  stays soft: the failure is legible, a reviewer that knows `git merge-base` fixes it in
+  one command, and `F-33` had already written it down. The cheap fix is entirely in the
+  orchestrator's hands and cost one sentence per brief — **state the merge-base SHA and
+  the range in every reviewer brief, rather than saying `develop..HEAD`**. That was done
+  from round 1 onward here only because `F-33` had been logged the day before. Third
+  sighting should make it a line in the `orchestrate` skill, not a control.
+
+### F-42 — Bin 2: `scripts/` sits outside every control's reach
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** 2
+- **Claim:** `controls/fitness/exec_confinement.py` sets
+  `SCAN_DIRS = ['src', 'controls', 'governance', 'tests']`. `scripts/` is not in it, and
+  now holds two files — `task-status.py` and `task-symbols.py`. A script dropped there
+  calling `exec` or `eval` would never be seen by DEC-1's control. Neither current script
+  does; this is a coverage gap, not a violation.
+- **Sightings:** 1.
+- **Action:** **open.** Not fixed in PR #11: widening a control's scan set is a governance
+  change, and doing it inside a task that adds a file to the very directory being brought
+  under the control is the wrong shape — a builder must never be in a position to
+  influence the reach of the control that judges it. Belongs in its own change, on
+  `develop`, reviewed on its own terms.
+- **Notes:** The checkable claim, and it generalises past this one control: **a control's
+  scan set should be the set of directories that contain code, derived, not a list
+  maintained by hand.** Every hand-maintained list of directories drifts the moment
+  someone adds a directory, and nothing announces it — the control keeps passing, which
+  reads exactly like the code being clean.
+  Found by a boundary reviewer that was explicitly asked whether `scripts/` was in the
+  control's scan set and told to say so plainly if it was not. It would not have surfaced
+  otherwise, because the control passed. Worth remembering when writing the next boundary
+  brief: asking "is this covered?" is a different question from "does this pass?", and
+  only the first one finds a gap.
+
+### F-43 — harness: a reviewer proposed a fix that could not work, and said so when shown why
+
+- **Date:** 2026-09-10
+- **Task:** CT-01
+- **Bin:** unbinned harness finding
+- **Claim:** The code reviewer's round-3 finding was correct — two fences left open pair
+  with each other and drop a section silently — but its proposed fix, a per-fence tracker
+  replacing the global parity count, cannot work: the two readings are the same character
+  sequence, and CommonMark resolves the second delimiter as closing the first. The
+  orchestrator rejected the fix, kept the finding, and specified a different one that
+  inspects the casualty (warn when a fenced region swallows a known section header) rather
+  than classifying the fences. The builder reached the same conclusion independently
+  before being told, and said so. The reviewer, invited to argue back with a concrete
+  counter-example and told explicitly not to soften the finding because it had been
+  overruled, looked for one, did not find it, and agreed.
+- **Sightings:** 1.
+- **Action:** none needed. Recorded as a positive data point.
+- **Notes:** Logged because the log is mostly failures and this is the loop's stated shape
+  working exactly as written: reviewer wins on the finding, orchestrator wins on the fix
+  only by carrying the argument, builder free to refuse, and the disagreement resolved by
+  a fact about CommonMark rather than by seniority. `AGENTS.md` says "builder and reviewer
+  disagree: reviewer wins, unless you can personally verify the reviewer is wrong" — this
+  is the exception clause being used, once, with the verification stated in the brief so
+  both other agents could check it.
+  The part worth keeping deliberately: the reviewer was told **not** to soften its finding
+  because the orchestrator disagreed with the remedy. Separating "your diagnosis is right"
+  from "your prescription is wrong" is what let it re-attack the new code honestly instead
+  of defending its own proposal, and it found a genuine false-positive class in the
+  replacement on the very next round.
