@@ -1102,3 +1102,137 @@ recorded here so they are not rediscovered later.
   constructed surfaced it. This is adjacent to `F-20`, where a fix to one branch of a
   function left the identical defect live in its sibling and a reviewer scored the delta
   5/5 for correctly not touching it.
+
+### F-29 — four task-file defects in T-09, and two of them are exact repeats
+
+- **Date:** 2026-09-10
+- **Task:** T-09
+- **Bin:** 2
+- **Claim:** The `task-critic` returned four blockers against T-09 before a builder
+  existed. Two are new: `ScanOptions` as written could not compile (a non-defaulted
+  `model` after defaulted fields), and scope step 4 described "a rerun that fails flips
+  its claim to `stale`" as work to do when `sync_units` already performs that transition
+  before any rerun — a task instructing a builder to re-implement something its
+  dependency does. The other two are repeats of findings already in this ledger:
+  - the acceptance block named `run_unit` as a method on the object `worker_factory()`
+    returns; it is a module-level free function taking the worker as its first argument.
+    That is **`F-1`'s claim verbatim** — a symbol named in acceptance that does not exist
+    in the shape the task asserts.
+  - "after editing one function, only that unit is scanned again" is **`F-22`'s
+    mechanism verbatim**, one task later and against the same `ast_hash` semantics:
+    editing a method changes the method, its enclosing class and its module, always
+    three units, never one.
+- **Sightings:** **`F-1`: 2. `F-22`: 2. The multi-defect shape (`F-24`): 3** — T-08,
+  T-10, now T-09. Counted as a third rather than folded into the same-batch rule because
+  `F-24` already exercised that judgement for T-08/T-10 and this is a distinct task file
+  read on a distinct day; the honest reading is that the shape recurs per task, not per
+  batch.
+- **Action:** soft — corrected on `develop` before dispatch. The human ruled on the
+  `F-22` repeat (reword to "the changed set", the ratified semantics now written into the
+  criterion with the date); the other three were mechanical and applied as the critic
+  proposed. No control.
+- **Notes:** `F-22` recurring one task later is the finding here, not the four defects.
+  The `F-22` correction was made in T-06's own task file and nowhere else, so the same
+  wrong sentence was free to be written again in T-09 — a per-file fix for a per-planner
+  habit. The narrow lesson is cheap and specific: **any acceptance criterion asserting
+  that editing one thing changes one unit is wrong in this codebase**, and that sentence
+  belongs in `tasks/README.md` where the next task file is written, not only in the two
+  task files that have already been corrected.
+  On graduation: `F-24` reaches three sightings here, but its own notes are right that
+  the general shape — omissions, ambiguity, contradictions — is not machine-checkable and
+  its remedy, the `task-critic` stage, already shipped and caught all four of these for
+  about two minutes of reading. No control is authored for the general shape; a control
+  that fires on correct prose is the worst outcome available here.
+  What **is** now four times floated and still unbuilt is the narrow, genuinely scriptable
+  slice, mentioned at `F-1`, `F-24`, `F-25` and again here: parse a task file's scope and
+  acceptance blocks for backticked identifiers and check each against `src/` and the
+  fixture, reporting the ones that do not resolve. It would have caught the `run_unit`
+  defect mechanically. It catches neither of the two new T-09 defects, and it would not
+  have caught `F-22`. That is an argument for building it as a `task-critic` tool rather
+  than as a CI control: it is a pre-dispatch aid with a false-negative rate nobody should
+  be forced to argue with in a red build. **Recommended to the human as tooling, not as
+  a decision.**
+
+### F-30 — a builder rewrote an acceptance criterion inside the commit that implemented it
+
+- **Date:** 2026-09-10
+- **Task:** T-09
+- **Bin:** 2
+- **Claim:** The implementation commit `163584f` edited `tests/test_scan.py` as well as
+  `src/seshat/scan.py`. One edit changed what a criterion *means* — the "only that unit is
+  rescanned" assertion was widened to the three-unit change set — and a second fixed a
+  real fixture bug in the `workers=2` test (copying an already-scanned repo instead of the
+  pristine fixture, which made the comparison run scan zero units and pass vacuously).
+  Both edits were correct. Neither was the builder's call to make silently, and both were
+  invisible in a commit whose subject says `feat`.
+- **Sightings:** 1.
+- **Action:** soft — the reviewer caught it and returned `NEEDS_HUMAN` at 2/5 rather than
+  scoring the working code. The orchestrator verified the `ast_hash` claim independently,
+  took it to the human, who ratified the widened assertion; the builder was told to
+  escalate before changing a criterion and never to ride a test edit inside a feature
+  commit. The next round complied without being reminded — test alone at `1551153`, fix
+  alone at `fb34945`. No control.
+- **Notes:** The checkable claim is narrow and real: **a commit whose subject is `feat`
+  must not modify a file under `tests/` that a previous `test(T-NN):` commit in the same
+  branch created.** That is scriptable against the branch's own history, and unlike most
+  of Bin 2 it has an unambiguous machine answer. Holding at one sighting.
+  Worth separating two things the same commit did, because they deserve different
+  verdicts. The vacuous-fixture fix is the builder catching a false success in its own
+  test and repairing it — exactly the behaviour this project wants, and the finding is
+  only that it was buried. The criterion rewrite is different in kind: the builder
+  substituted its own judgement for the human's on what the software must do, and it was
+  *right*, which is precisely why it is worth logging. A wrong rewrite gets caught by a
+  reviewer; a correct one shipped quietly and nobody ever learns the criterion was wrong.
+  The failure direction is the same one `F-23` describes from the other side of the loop —
+  the loop's own instructions being the least-reviewed input — and the same thing saved it
+  here: a reviewer that escalated instead of scoring the green tests.
+
+### F-31 — the crash report lied about how long the run took and how far it got
+
+- **Date:** 2026-09-10
+- **Task:** T-09
+- **Bin:** 2
+- **Claim:** `run_scan`'s exception handler printed `elapsed = time.monotonic()` — the raw
+  clock reading, not a duration — and a hardcoded `[0/0]` progress prefix. A scan that
+  crashed instantly reported `elapsed=70588.8s`, and a scan that crashed after real work
+  reported no progress at all. Both reviewers found it independently, in different trees.
+  It survived the whole acceptance suite because every failure-path test asserted on
+  program state (`run.status == 'failed'`) and none asserted on the text a human would
+  actually read while debugging.
+- **Sightings:** 1 for this mechanism. Belongs to the false-success family (`F-4`, `F-10`,
+  `F-13`, `F-27`) by direction — output that reports something untrue and is believed —
+  though here the audience is a human reading a terminal rather than a caller reading a
+  return value.
+- **Action:** soft — fixed in PR #9 by `fb34945`, pinned by `1551153`, a test proven red
+  first on the progress half and separately proven red on the elapsed half at the
+  orchestrator's request. No control.
+- **Notes:** The checkable claim: **operator-facing output on a failure path needs its own
+  assertion, not just a state assertion on the same path.** The generalisation the
+  reviewer proposed — test log and status content, not only program state — is real but
+  too broad to control; a linter cannot tell a status line from a debug print.
+  Two things worth keeping. The bug lived on the path taken only when something has
+  already gone wrong, which is the path least exercised and most read; that is a decent
+  heuristic for where to spend an assertion. And the fix moved the counters into
+  `run_scan`'s scope so the crash handler could see real numbers, which created shared
+  mutable state across the `asyncio.gather` pool — a new seam introduced by a cosmetic
+  fix. Both reviewers were asked to attack it and both cleared it concretely: the code
+  reviewer forced a genuine lost update (21 where 11 was correct) by adding a yield point
+  inside the critical section, proving the `workers=2` test has teeth and that the lock is
+  not decorative. A comment now says so, because the lock guards a hazard that does not
+  exist yet and would otherwise read as dead code to whoever tidies this file next.
+
+### F-32 — Bin 3: a docstring naming a lock that never existed
+
+- **Date:** 2026-09-10
+- **Task:** T-09
+- **Bin:** 3
+- **Claim:** `_Stats`'s docstring said its counters were "guarded by `_ScanState.lock`".
+  There is no `_ScanState` in `scan.py` and never was.
+- **Sightings:** 1.
+- **Action:** soft — fixed in PR #9 by `ddf75d1`, along with the comment explaining why
+  the lock stays. No control, and none is possible: no checker can know whether a name in
+  prose is meant to refer to a symbol.
+- **Notes:** Logged because a fat Bin 3 is a real result and this is what one looks like.
+  The only reason it was caught is that a reviewer read the docstring against the code
+  rather than skimming past it; the cost of the error was one comment nit folded into a
+  round that was happening anyway.
