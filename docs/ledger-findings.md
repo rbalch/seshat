@@ -2144,3 +2144,35 @@ recorded here so they are not rediscovered later.
   has a non-empty test module under `tests/controls/`. Presence, not behaviour — it
   cannot fire on correct code. It ships in its own PR, because a rule change is a diff a
   human reviews, never a side effect of a triage commit.
+
+### F-51 — the acceptance suite shelled out to an undeclared binary, and only CI knew — again
+
+- **Date:** 2026-09-10
+- **Task:** T-14
+- **Bin:** 2
+- **Claim:** Four of T-14's acceptance tests build a throwaway repo and run
+  `codegraph init` in it through `subprocess`. That binary is installed on the dev
+  machine and on no GitHub runner, so the whole suite was green locally, both reviewers
+  ran it green in two separate trees, and CI failed on PR #16 with
+  `FileNotFoundError: [Errno 2] No such file or directory: 'codegraph'` on all four,
+  taking `make governance` check 9 down with them.
+- **Sightings:** **2** — `F-40` (the first, same mechanism, same log), this.
+- **Action:** fixed on the PR branch: `.github/workflows/ci.yml` now installs
+  `@colbymchenry/codegraph@1.6.0` on a pinned node, before the first step that runs
+  pytest. The human chose installing the real indexer over the two cheaper answers —
+  a committed fixture index, or a hand-built sqlite one — because the crash this task
+  fixes is about what the real indexer produces for an undecodable file, and a
+  stand-in index would assume the very thing the test exists to show. CI green on
+  `06e1cc7`. No control.
+- **Notes:** Two sightings, and what they share is not carelessness but a blind spot
+  with a specific shape: **every agent in this loop verifies by execution on the same
+  machine, and that machine has tools the deployment target does not.** `F-41` logged
+  that observation about the harness; this is it producing a red build for the second
+  time. Three verifications — builder, boundary reviewer, code reviewer, in three
+  separate trees — cannot catch it, because all three inherit the same PATH. The
+  cheapest checkable form is narrow and worth remembering at a third sighting: **a test
+  that shells out to a binary names it in the CI workflow.** A grep for `subprocess` in
+  `tests/` against the workflow's install steps would have caught both instances.
+  Recorded while fixing this one: the builder swept the rest of the suite for the same
+  shape and found `uv`, `git` and `sys.executable`, all of which a runner has. So the
+  gap today is exactly one tool, and it is now declared.
