@@ -637,6 +637,18 @@ class Ledger:
             )
         return stamped
 
+    def concept(self, concept_id: str) -> Concept | None:
+        """One concept by id, or `None` — the exact-id half of the CLI's `concept` lookup."""
+        row = self.conn.execute('SELECT * FROM concepts WHERE id = ?', (concept_id,)).fetchone()
+        return _row_to_concept(row) if row is not None else None
+
+    def concept_evidence(self, concept_id: str) -> list[str]:
+        """The claim ids a concept cites as evidence, insertion order. `[]` for an unknown concept."""
+        rows = self.conn.execute(
+            'SELECT claim_id FROM concept_evidence WHERE concept_id = ? ORDER BY rowid', (concept_id,)
+        ).fetchall()
+        return [row['claim_id'] for row in rows]
+
     # -- citation ---------------------------------------------------------
 
     def citation(self, claim_id: str) -> Citation:
