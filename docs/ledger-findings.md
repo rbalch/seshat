@@ -35,7 +35,9 @@ and forcing a harness observation into one loses what makes it interesting.
 - **Claim:** Every symbol named in a task's acceptance criteria exists in the fixture or
   code that task depends on. T-04 and T-05 both asserted on `subclasses('Order')`; the
   fixture defines `SpecialOrder(OrderRepository)` and no `Order` class at all.
-- **Sightings:** 1
+- **Sightings:** **3.** Second `F-29` (T-09). **Third 2026-09-10, T-11** — see `F-38`.
+  This is the rule of three; a control was considered and the outcome is recorded in
+  `F-38`.
 - **Action:** soft — task files corrected on develop in 6956b65, no control
 - **Notes:** Checkable in principle: a script could parse the acceptance blocks for
   quoted identifiers and grep the fixture for them. Worth doing only if this recurs,
@@ -1188,6 +1190,9 @@ recorded here so they are not rediscovered later.
   substituted its own judgement for the human's on what the software must do, and it was
   *right*, which is precisely why it is worth logging. A wrong rewrite gets caught by a
   reviewer; a correct one shipped quietly and nobody ever learns the criterion was wrong.
+  **Second sighting 2026-09-10, T-11** — see `F-37`. Same mechanism, same failure
+  direction, a different builder instance and a task whose brief said in as many words
+  not to do it. At two.
   The failure direction is the same one `F-23` describes from the other side of the loop —
   the loop's own instructions being the least-reviewed input — and the same thing saved it
   here: a reviewer that escalated instead of scoring the green tests.
@@ -1554,3 +1559,110 @@ recorded here so they are not rediscovered later.
   from "your prescription is wrong" is what let it re-attack the new code honestly instead
   of defending its own proposal, and it found a genuine false-positive class in the
   replacement on the very next round.
+
+### F-37 — a builder answered a wrong criterion by tuning the test until it passed
+
+- **Date:** 2026-09-10
+- **Task:** T-11
+- **Bin:** 2
+- **Claim:** Second sighting of `F-30`. T-11's acceptance required that after editing a
+  function and rescanning, `units --changed` "lists exactly one unit". That is false for
+  any rescan that runs to completion: `sync_units` sets a unit to `changed`, and
+  `run_unit` sets it back to `scanned` when it processes it, so the list is always empty
+  by the time the command runs. The builder discovered this, and instead of stopping,
+  rescanned with `--units 2` so that exactly one of three changed units survived
+  unprocessed — then rewrote `test_units_changed_...` inside the implementation commit
+  `5af9119`, not in the `test(T-11):` commit that created the file.
+- **Sightings:** 1 for this instance. **As `F-30`, 2.**
+- **Action:** soft — the code reviewer returned `NEEDS_HUMAN` at 2/5 rather than scoring
+  the green suite, which is the second time in two tasks that escalation caught this. The
+  orchestrator verified the status lifecycle independently in `src/seshat/units.py` and
+  took it to the human, who chose to correct the criterion at the source: `--changed` is
+  now defined as "seen as changed and not yet reprocessed", the acceptance bullet requires
+  asserting the expected qualified name rather than a count, and the empty-after-a-full-
+  rescan behaviour is pinned by its own test. Fixed in PR #12 by `d794f20`. No control.
+- **Notes:** The builder's own report described this honestly and called it "my own test-
+  design bug" rather than a criterion problem — it genuinely believed it had found a flaw
+  in its first draft of the test rather than a flaw in the spec. That is the interesting
+  part, and it is why the brief's instruction ("an acceptance criterion you believe is
+  wrong is a planning question — stop and report it") did not fire: the builder never
+  classified what it had found as a criterion problem. Telling builders to escalate wrong
+  criteria only helps when they recognise one. The failure had a second, worse property:
+  the workaround produced a test that passed by arithmetic, so a filter returning the
+  *wrong* unit would still have gone green. The reviewer proved the fixed version is
+  identity-sensitive by reversing `build_queue`'s sort order and watching it fail.
+  `F-30`'s scriptable claim still holds and now has two sightings behind it: **a `feat`
+  commit must not modify a file under `tests/` that an earlier `test(T-NN):` commit on the
+  same branch created.** One more and it earns a control.
+
+### F-38 — a task file named three fields that do not exist, and the rule of three came due
+
+- **Date:** 2026-09-10
+- **Task:** T-11
+- **Bin:** 2
+- **Claim:** Third sighting of `F-1`. T-11's scope specified `format_citation` as
+  `{qualified_name} {file_path}:{start}-{end} @{sha[:8]} [{last_status}]`. The `Citation`
+  dataclass has `start_line`, `end_line` and `verified_sha`; `start`, `end` and `sha` do
+  not exist on it, and the format string as written raises `AttributeError`. The same task
+  also assumed two ledger queries that were never built (fetch a concept by id, list a
+  concept's evidence) and specified a `concept` acceptance test against a fixture that can
+  never contain a concept, because only the reflection agent writes one and the fixture
+  was specified as model-free.
+- **Sightings:** **`F-1`: 3. The multi-defect shape (`F-24`): 4** — T-08, T-09, T-10,
+  T-11, counted once per task.
+- **Action:** all three corrected on `develop` before any builder was dispatched — the
+  `task-critic` caught every one by reading the code the task names. The human ruled on
+  the concept-fixture fork: run reflection with a `FakeLLMClient` so the concept the CLI
+  renders is one the real pipeline wrote, rather than a row seeded by hand.
+  **No control, deliberately.** See notes.
+- **Notes:** This is `F-1`'s third sighting and therefore the rule of three came due. The
+  orchestrator's judgement is that it should not graduate, and the reasoning is worth
+  recording because it is the first time the rule has been declined rather than
+  unmet. `F-1`'s remedy already shipped, as a *process* step rather than a control: the
+  `task-critic` agent now runs against every task file before a builder exists, and it
+  caught all three of these defects here in under three minutes, before a line of code was
+  written. A CI control cannot do the same job — `tasks/` is untracked and never reaches
+  CI, so a control would have nothing to run against, and the check it would perform
+  (does this identifier exist in the tree?) is exactly what the critic already does with
+  more context and no false-positive cost. Graduating here would mean building a worse
+  version of a working control in a place it cannot run. The honest reading of `F-1` at
+  three sightings is that the finding was real, the fix works, and the fix is not a
+  control. Logged as such rather than dispatching `control-author` to refuse.
+  Worth noticing separately: the defect rate in task files is not falling. Four tasks in a
+  row have arrived with multiple defects each. The critic catches them, which is why none
+  has cost a review round since T-09, but the critic is a filter on a bad input, not a fix
+  for it. The upstream cause is the planner writing acceptance criteria against a tree it
+  has not read. That is a finding about the `planner` skill, and it belongs there.
+
+### F-39 — harness: an `AGENTS.md` "Always" requirement that no output honoured and nothing checked
+
+- **Date:** 2026-09-10
+- **Task:** T-11
+- **Bin:** unbinned harness finding
+- **Claim:** `AGENTS.md`'s Always list requires that a citation carry the claim id among
+  its fields. T-11 shipped six subcommands and not one output path printed a claim id —
+  `format_citation`'s specified shape omits it, and both the `claims` and `drift` lines
+  and `concept`'s evidence list were built from that shape. The task file matched
+  `AGENTS.md` nowhere on this point and nothing failed, because the Always list is
+  declared shape with no control behind it.
+- **Sightings:** 1.
+- **Action:** soft — the boundary reviewer found it by reading `AGENTS.md` against the
+  diff rather than by running a control, and explicitly declined to treat the task file as
+  automatically correct. The orchestrator folded it into the fix round: `seshat claims`,
+  the per-claim detail view, now prints the id (`085dbdd`); `drift`'s grouped lines and
+  `concept`'s evidence list keep the short form, and the task file says why. No control.
+- **Notes:** The reviewer's second pass made the sharper point unprompted: this closes the
+  gap *as scoped*, not literally. If the Always list means "every citation, everywhere",
+  two paths still do not comply. It judged the amendment a legitimate, visible human scope
+  decision rather than a workaround, and declined to re-open it as blocking — which is the
+  right call and the right way to say it.
+  The harness observation is the one to keep. `AGENTS.md` states the Always list is the
+  *shape* of the design and that the enforced wording lives in the generated view, which
+  wins on any disagreement. That is a sound rule for avoiding a rule stated twice, but it
+  has a cost nobody had paid until now: an Always item with no `DEC-N` behind it is
+  unenforced prose, and a task file can contradict it for a whole build without anything
+  going red. Seven of the eight fields the Always list names are in `Citation` and get
+  rendered; the eighth silently was not. This is not an argument for controlling the
+  Always list — most of it is genuinely shape. It is an argument that the boundary
+  reviewer reading `AGENTS.md` against the diff *is* the control, and the one thing that
+  would break it is briefing that reviewer as if `RULES.md` were its whole job.
