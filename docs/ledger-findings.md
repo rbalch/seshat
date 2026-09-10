@@ -945,6 +945,11 @@ recorded here so they are not rediscovered later.
   clause deleted and the absence of a ledger-wide lookup stated. Defects (1) and (4) were
   explicitly left open by the human's call; they must be resolved before T-10 dispatches.
   No control.
+  **Closed 2026-09-10, at T-10 dispatch.** A second critic run confirmed both were still
+  open against the merged tree — `set_candidate` genuinely absent after T-03, T-08 and
+  T-09 all landed — and the human resolved them: `ReflectionSummary` pinned to exactly
+  four named int fields, and `src/seshat/ledger/store.py` added to `files:`. See `F-34`
+  for what the deferral actually cost.
 - **Notes:** The first planning defect this project caught *before* a builder existed. The
   previous five were all found after code was written against them — `F-22` cost a full
   review round and a human correction mid-task, `F-1` corrupted two task files that had
@@ -1236,3 +1241,107 @@ recorded here so they are not rediscovered later.
   The only reason it was caught is that a reviewer read the docstring against the code
   rather than skimming past it; the cost of the error was one comment nit folded into a
   round that was happening anyway.
+
+### F-33 — harness: `develop` moved under an in-flight worktree, and the review range lied
+
+- **Date:** 2026-09-10
+- **Task:** T-10
+- **Bin:** unbinned harness finding
+- **Claim:** The orchestrate skill tells both reviewers to review `develop..HEAD`. A task
+  branch is cut from `develop` at dispatch, but `develop` is a moving ref: during T-10's
+  build the human committed `ff8eaa6` (an unrelated task-status script fix) to it. From
+  that moment `develop..HEAD` showed `scripts/task-status.py` being *reverted* by the task
+  branch — a file the builder never touched, in a commit it never made. The builder's own
+  footprint report was correct and the diff was wrong.
+- **Sightings:** 1.
+- **Action:** soft — the orchestrator caught it by running `git log --oneline develop..HEAD
+  -- scripts/task-status.py`, which returned nothing for a file the range diff claimed had
+  changed, and both reviewer briefs were given the true merge-base range `1d5b03d..HEAD`
+  instead. The branch was rebased onto `develop` before the squash, so PR #10 is clean.
+  No control.
+- **Notes:** The failure direction is what makes this worth logging. It does not hide a
+  real change; it *invents* one, which is the safer of the two directions but still costs
+  a round if a reviewer files it as a finding — an undeclared, unreported edit to a script
+  outside the task's `files:` list is exactly the shape a boundary reviewer is built to
+  block on. Two reviewers would have found the same phantom independently and agreed with
+  each other, which is the case where independence gives no protection at all.
+  The fix is mechanical and belongs in the skill: brief reviewers with
+  `$(git merge-base develop HEAD)..HEAD`, never `develop..HEAD`. Cheap, and it removes the
+  whole class. If this recurs, that is the change to make rather than another note.
+
+### F-34 — a known task-file defect was deferred, and the second reader had to re-find it
+
+- **Date:** 2026-09-10
+- **Task:** T-10
+- **Bin:** 2
+- **Claim:** A task-file defect found before dispatch is resolved before dispatch, or it is
+  re-found at full price later. `F-24` recorded five defects in T-10 on 2026-09-09; the
+  human fixed three and explicitly left (1) `ReflectionSummary` having no declared fields
+  and (4) `files:` missing the ledger store open. Both were still open on 2026-09-10 and a
+  second critic run spent a second full pass re-deriving them, including re-verifying
+  against three dependencies that had merged in between.
+- **Sightings:** 1 for the deferral mechanism. **As a planning defect, the eighth** — after
+  `F-1`, `F-11`, `F-22`, `F-24`, `F-25`, `F-29` and the fifth the ledger counts under
+  `F-24`.
+- **Action:** soft — both resolved by the human at dispatch, the shape recorded in `F-24`.
+  No control: a script cannot tell a deliberately deferred decision from a forgotten one.
+- **Notes:** `F-24` predicted the cost precisely — "if T-10 dispatches with that still open,
+  expect it back as a review finding", the `F-23` failure mode where a builder invents a
+  field name and pins it with a green test. That is not what happened, and the reason is
+  worth recording: the critic stage ran *again*, before dispatch, and caught it a second
+  time. The soft layer held where it was predicted to fail, which is the first evidence in
+  this log that a pre-dispatch reader is worth running on a task it has already seen.
+  The cost was a second critic pass, roughly a minute; the predicted cost was a full review
+  round plus a human correction mid-task. That is the trade, and it came out in favour of
+  re-reading.
+  What it does not settle: the defect still sat open for a day because nothing tracks
+  "resolved before dispatch" as a gate. It was caught because the orchestrator read `F-24`
+  in the ledger before dispatching, which is exactly the loop the ledger is for, and also
+  exactly the sort of thing that works until the day someone skips the reading.
+
+### F-35 — Bin 3: a lazy import to break a cycle between two new modules
+
+- **Date:** 2026-09-10
+- **Task:** T-10
+- **Bin:** 3
+- **Claim:** `candidates.py` imports `PatternDraft` from `agents/reflection.py`, and
+  `run_reflection` imports `flag_candidates` back from `candidates.py` lazily, inside the
+  function body, to break the resulting cycle. The alternative shape is a shared module
+  holding the drafts that both import from, avoiding the cycle rather than routing around
+  it.
+- **Sightings:** 1.
+- **Action:** none. Both modules document the cycle and why the import is where it is; the
+  boundary reviewer raised it as taste and approved. Left as built.
+- **Notes:** Logged as Bin 3 rather than Bin 2 deliberately. A checker *could* find lazy
+  imports, but it could not tell the ones that break a genuine cycle from the ones that
+  defer an expensive import, and both are legitimate — so the checkable version of this
+  claim is not the claim anyone actually holds. That is the test for Bin 3 and this passes
+  it cleanly.
+
+### F-36 — harness: the first task in this log to draw zero review findings
+
+- **Date:** 2026-09-10
+- **Task:** T-10
+- **Bin:** unbinned harness finding
+- **Claim:** Both reviewers returned APPROVE 5/5 with no findings at any severity — the
+  first time in ten tasks. The reported red proof was also the weakest so far: a bare
+  `ModuleNotFoundError` on the whole test module, which proves the module is absent and
+  proves nothing about any individual acceptance criterion.
+- **Sightings:** 1.
+- **Action:** soft — the orchestrator did not relay it. Both reviewer briefs were told the
+  red was module-level and asked to mutation-test each acceptance bullet on the green tree;
+  the code reviewer reported all seven going red for the correct reason. The orchestrator
+  then independently planted two mutations of its own in the disposable boundary checkout —
+  the sightings threshold `3 → 2`, and `concepts_discarded += 1 → += 0` — and confirmed
+  exactly one test caught each, for the right reason. Reverted; the tests have teeth.
+- **Notes:** A clean sweep is the result most worth distrusting, because it is
+  indistinguishable from two reviewers agreeing to wave a branch through — the `F-2` and
+  `F-21` shape. The cheap defence is the one used here: the orchestrator spends two
+  mutations of its own rather than accepting "I mutation-tested it" as evidence. That cost
+  about a minute and is the only thing separating "no findings" from "no looking".
+  The other half is the red proof itself. A module-level `ModuleNotFoundError` is what you
+  always get when a task creates a new module and writes its acceptance tests first, so it
+  is not a builder error — but it means the red commit certifies far less than the ritual
+  implies, and every future task that creates a new module will produce the same weak red.
+  If a builder brief ever gets a line about proving each criterion red individually, this
+  is the entry that argues for it. One sighting; not yet a change.
