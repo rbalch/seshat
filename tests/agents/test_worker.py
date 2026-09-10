@@ -31,7 +31,7 @@ from nooa.unifiedllm import FakeLLMClient, LLMResponse
 
 from seshat.agents.verifier_author import VerifierAuthor
 from seshat.agents.worker import Worker, _read_span, run_unit
-from seshat.graph import Graph
+from seshat.graph import Graph, Node
 from seshat.ledger.models import Unit, UnitKind
 from seshat.ledger.store import Ledger
 from seshat.memory import open_working_memory, seed_docs
@@ -215,6 +215,23 @@ def test_read_span_fails_closed_on_a_non_utf8_source_file(graph: Graph, repo: Pa
     (repo / unit.file_path).write_bytes(b'\xff\xfe not valid utf-8 \x00\x01')
 
     assert _read_span(repo, node) == ''
+
+
+def test_read_span_returns_real_source_for_a_declared_latin1_file(repo: Path) -> None:
+    """T-14: a coding-declared latin-1 file must put real source in the prompt,
+
+    not the empty string T-08 put there (see `_read_span`'s docstring).
+    """
+    source = '# -*- coding: latin-1 -*-\ndef coût():\n    return 1\n'.encode('latin-1')
+    (repo / 'declared_latin1.py').write_bytes(source)
+    node = Node(qualified_name='coût', file_path='declared_latin1.py', kind='function', start_line=2, end_line=3)
+
+    span = _read_span(repo, node)
+
+    assert span != ''
+    assert 'coût' in span
+    assert '�' not in span
+    assert 'return 1' in span
 
 
 # -- verify_claim ---------------------------------------------------------------

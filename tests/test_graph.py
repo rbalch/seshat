@@ -359,3 +359,64 @@ def test_nodes_breaks_ties_on_normalized_qualified_name(tmp_path: Path) -> None:
         names = [node.qualified_name for node in g.nodes()]
 
     assert names == ['Apple', 'Zebra.foo']
+
+
+# -- T-14: Graph.decorators must not raise on an undecodable or non-Python file --
+
+
+def test_decorators_returns_empty_for_symbol_in_undecodable_file(tmp_path: Path) -> None:
+    # Genuinely unreadable bytes (bad byte in code, not a comment) --
+    # tasks/seshat-phase-one/T-14-unreadable-source-files.md's Context.
+    repo = _build_synthetic_repo(
+        tmp_path,
+        nodes=[
+            ('function:broken', 'function', 'broken', 'broken', 'mod.py', 1, 1),
+        ],
+        edges=[],
+    )
+    (repo / 'mod.py').write_bytes(b'co\xfbt = 1\n')
+
+    with Graph.open(repo) as g:
+        decorators = g.decorators('broken')
+
+    assert decorators == []
+
+
+def test_decorators_returns_empty_for_symbol_in_a_non_python_file(tmp_path: Path) -> None:
+    repo = _build_synthetic_repo(
+        tmp_path,
+        nodes=[
+            ('function:whatever', 'function', 'whatever', 'whatever', 'data.txt', 1, 1),
+        ],
+        edges=[],
+    )
+    (repo / 'data.txt').write_text('this is not python at all: {{{')
+
+    with Graph.open(repo) as g:
+        decorators = g.decorators('whatever')
+
+    assert decorators == []
+
+
+def test_decorators_returns_empty_for_symbol_whose_file_cannot_be_read_at_all(tmp_path: Path) -> None:
+    """`read_source_bytes` returns `None` (not a decode/parse failure) -- a file
+
+    codegraph indexed that is simply gone by the time `decorators` runs, e.g. a
+    delete after indexing but before a re-sync. Reached with a real `OSError`,
+    not a contrived stand-in: `mod.py` is a directory, so `Path.read_bytes()`
+    raises `IsADirectoryError` (an `OSError` subclass), exactly the class of
+    failure this branch exists to swallow.
+    """
+    repo = _build_synthetic_repo(
+        tmp_path,
+        nodes=[
+            ('function:ghost', 'function', 'ghost', 'ghost', 'mod.py', 1, 1),
+        ],
+        edges=[],
+    )
+    (repo / 'mod.py').mkdir()
+
+    with Graph.open(repo) as g:
+        decorators = g.decorators('ghost')
+
+    assert decorators == []

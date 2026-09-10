@@ -14,7 +14,12 @@ RunStatus = Literal['running', 'stopped_budget', 'stopped_complete', 'failed']
 RunMode = Literal['claims', 'prose']
 
 UnitKind = Literal['class', 'function', 'method', 'module']
-UnitStatus = Literal['pending', 'scanned', 'changed', 'vanished']
+# 'unreadable' (T-14): the unit's node is still in the graph but its source
+# file couldn't be read or didn't parse on the last attempt -- distinct from
+# 'vanished' (the symbol itself is gone from source that did parse), so a
+# unit whose file becomes readable again can recover on the next sync even
+# if this was the very first sync that ever saw it. See seshat.units.sync_units.
+UnitStatus = Literal['pending', 'scanned', 'changed', 'vanished', 'unreadable']
 
 ClaimKind = Literal['structural', 'behavioral']
 ClaimSource = Literal['code', 'readme', 'docstring']

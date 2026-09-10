@@ -13,15 +13,17 @@ in the field between `codegraph init` runs.
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from seshat.graph import Graph
+from seshat.graph import Graph, Node
 from seshat.ledger.store import Ledger
-from seshat.units import build_queue, enumerate_units, sync_units, unit_id, verifiers_to_rerun
+from seshat.units import UNREADABLE, ast_hash, build_queue, enumerate_units, sync_units, unit_id, verifiers_to_rerun
 
 
 @pytest.fixture
@@ -47,6 +49,206 @@ def ledger(repo: Path) -> Iterator[Ledger]:
 
 def _new_run_id(ledger: Ledger) -> str:
     return ledger.create_run().id
+
+
+# -- T-14: a repo with one undecodable file, indexed for real ---------------
+
+# Three byte strings from tasks/seshat-phase-one/T-14-unreadable-source-files.md's
+# Context section, each for a different test — not interchangeable.
+
+# Reproduces today's crash: the bad byte is inside a comment, so `ast.parse`
+# on the raw bytes parses this fine (PEP 263 default utf-8, replaced with the
+# actual encoding the comment happens to decode under) once `ast_hash` reads
+# bytes -- it's `read_text()` that raises today.
+_CRASHING_COMMENT_BYTES = b'def cafe_price():\n    # co\xfbt en francs\n    return 42\n'
+
+# Genuinely unreadable: the bad byte is in code, not a comment -- `ast.parse`
+# raises `SyntaxError` on these bytes.
+_GENUINELY_UNREADABLE_BYTES = b'co\xfbt = 1\n'
+
+
+def _indexed_repo(tmp_path: Path, extra_files: dict[str, bytes]) -> Path:
+    """A throwaway repo, for real, with `codegraph init` run over it.
+
+    Minimal rather than a copy of `fixture_target`: the enumerate_units/sync_units
+    tests below need a real codegraph index (not the hand-built sqlite `test_graph.py`
+    uses) so a genuinely undecodable file gets indexed the way codegraph really
+    indexes one -- see the manual repro in the task's planning conversation.
+    """
+    (tmp_path / 'demo').mkdir(parents=True, exist_ok=True)
+    (tmp_path / 'demo' / 'hello.py').write_text('def hello():\n    return 1\n')
+    for relative_path, content in extra_files.items():
+        target = tmp_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    env = {**os.environ, 'CODEGRAPH_TELEMETRY': '0'}
+    result = subprocess.run(
+        ['codegraph', 'init', str(tmp_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return tmp_path
+
+
+# -- ast_hash: a declared encoding is not drift -------------------------------
+
+
+def test_ast_hash_on_latin1_declared_file_equals_hash_of_same_code_as_utf8(tmp_path: Path) -> None:
+    latin1_repo = tmp_path / 'latin1'
+    latin1_repo.mkdir()
+    latin1_source = '# -*- coding: latin-1 -*-\ndef cout():\n    return 1\n'.encode('latin-1')
+    (latin1_repo / 'mod.py').write_bytes(latin1_source)
+    latin1_node = Node(qualified_name='cout', file_path='mod.py', kind='module', start_line=1, end_line=3)
+
+    utf8_repo = tmp_path / 'utf8'
+    utf8_repo.mkdir()
+    utf8_source = b'# -*- coding: latin-1 -*-\ndef cout():\n    return 1\n'
+    (utf8_repo / 'mod.py').write_bytes(utf8_source)
+    utf8_node = Node(qualified_name='cout', file_path='mod.py', kind='module', start_line=1, end_line=3)
+
+    latin1_hash = ast_hash(latin1_repo, latin1_node)
+    utf8_hash = ast_hash(utf8_repo, utf8_node)
+
+    assert latin1_hash is not None
+    assert latin1_hash != UNREADABLE
+    assert latin1_hash == utf8_hash
+
+
+# -- ast_hash: unreadable is distinguishable from missing ---------------------
+
+
+def test_ast_hash_reports_unreadable_distinct_from_missing_symbol(tmp_path: Path) -> None:
+    unreadable_repo = tmp_path / 'unreadable'
+    unreadable_repo.mkdir()
+    (unreadable_repo / 'mod.py').write_bytes(_GENUINELY_UNREADABLE_BYTES)
+    unreadable_node = Node(qualified_name='mod', file_path='mod.py', kind='module', start_line=1, end_line=1)
+
+    missing_repo = tmp_path / 'missing'
+    missing_repo.mkdir()
+    (missing_repo / 'mod.py').write_text('def other():\n    return 1\n')
+    missing_node = Node(qualified_name='not_there', file_path='mod.py', kind='function', start_line=1, end_line=2)
+
+    unreadable_result = ast_hash(unreadable_repo, unreadable_node)
+    missing_result = ast_hash(missing_repo, missing_node)
+
+    assert unreadable_result == UNREADABLE
+    assert missing_result is None
+    assert unreadable_result != missing_result
+
+
+# -- enumerate_units: the crash this task exists to fix ----------------------
+
+
+def test_enumerate_units_completes_over_repo_with_undecodable_file(tmp_path: Path) -> None:
+    repo = _indexed_repo(tmp_path, {'demo/comment_bad.py': _CRASHING_COMMENT_BYTES})
+
+    with Graph.open(repo) as graph:
+        units = enumerate_units(graph, repo)
+
+    file_paths = {u.file_path for u in units}
+    assert 'demo/hello.py' in file_paths
+    assert 'demo/comment_bad.py' in file_paths
+
+
+# -- sync_units: unreadable status, not vanished ------------------------------
+
+
+def test_sync_units_puts_unreadable_file_in_diff_unreadable_with_null_hash(tmp_path: Path) -> None:
+    repo = _indexed_repo(tmp_path, {'demo/broken.py': _GENUINELY_UNREADABLE_BYTES})
+
+    with Graph.open(repo) as graph, Ledger.open(repo) as ledger:
+        run_id = _new_run_id(ledger)
+        units = enumerate_units(graph, repo)
+        diff = sync_units(ledger, units, run_id)
+
+        broken_unit = next(u for u in units if u.file_path == 'demo/broken.py' and u.kind == 'module')
+
+        assert broken_unit.id in diff.unreadable
+        assert broken_unit.id not in diff.vanished
+        row = ledger.unit(broken_unit.id)
+        assert row is not None
+        assert row.status == 'unreadable'
+        assert row.ast_hash is None
+
+
+def test_unreadable_on_first_sync_recovers_to_changed_and_reaches_build_queue(tmp_path: Path) -> None:
+    repo = _indexed_repo(tmp_path, {'demo/broken.py': _GENUINELY_UNREADABLE_BYTES})
+
+    with Graph.open(repo) as graph, Ledger.open(repo) as ledger:
+        run_id_1 = _new_run_id(ledger)
+        units_1 = enumerate_units(graph, repo)
+        diff_1 = sync_units(ledger, units_1, run_id_1)
+
+        broken_unit = next(u for u in units_1 if u.file_path == 'demo/broken.py' and u.kind == 'module')
+        assert broken_unit.id in diff_1.unreadable
+        row_1 = ledger.unit(broken_unit.id)
+        assert row_1 is not None
+        assert row_1.status == 'unreadable'
+
+        # The file becomes valid utf-8 -- no reindex needed, the graph node
+        # for this file path already exists.
+        (repo / 'demo' / 'broken.py').write_text('cout = 1\n')
+
+        run_id_2 = _new_run_id(ledger)
+        units_2 = enumerate_units(graph, repo)
+        diff_2 = sync_units(ledger, units_2, run_id_2)
+
+        assert broken_unit.id in diff_2.changed
+        assert broken_unit.id not in diff_2.unreadable
+        row_2 = ledger.unit(broken_unit.id)
+        assert row_2 is not None
+        assert row_2.status == 'changed'
+        assert row_2.ast_hash is not None
+
+        queue = build_queue(ledger, seed_names=set())
+        assert broken_unit.id in {u.id for u in queue}
+
+
+def test_claims_on_newly_unreadable_unit_are_marked_stale(tmp_path: Path) -> None:
+    from seshat.ledger.models import Claim
+
+    repo = _indexed_repo(tmp_path, {'demo/breaks_later.py': b'def ok():\n    return 1\n'})
+
+    with Graph.open(repo) as graph, Ledger.open(repo) as ledger:
+        run_id_1 = _new_run_id(ledger)
+        units_1 = enumerate_units(graph, repo)
+        sync_units(ledger, units_1, run_id_1)
+
+        target = next(u for u in units_1 if u.file_path == 'demo/breaks_later.py' and u.kind == 'module')
+        claim = ledger.add_claim(
+            Claim(
+                id='',
+                repo_id='',
+                unit_id=target.id,
+                text='breaks_later defines ok, which returns 1.',
+                kind='structural',
+                source='code',
+                mode='claims',
+                status='conjectured',
+                confidence=0.9,
+                candidate_rule=0,
+                rule_sightings=0,
+                created_run=run_id_1,
+                verified_run=None,
+                verified_sha=None,
+                retries=0,
+            )
+        )
+
+        (repo / 'demo' / 'breaks_later.py').write_bytes(_GENUINELY_UNREADABLE_BYTES)
+
+        run_id_2 = _new_run_id(ledger)
+        units_2 = enumerate_units(graph, repo)
+        diff_2 = sync_units(ledger, units_2, run_id_2)
+
+        assert target.id in diff_2.unreadable
+
+        claims_for_target = ledger.claims_for_unit(target.id)
+        refetched = next(c for c in claims_for_target if c.id == claim.id)
+        assert refetched.status == 'stale'
 
 
 # -- bullet: enumerate_units yields >= 8 non-module units plus one module unit
@@ -396,7 +598,9 @@ def test_transient_syntax_error_self_heals_into_changed(graph: Graph, ledger: Le
     source_path = repo / 'demo' / 'receipts.py'
     original = source_path.read_text()
     # Drop the colon: a SyntaxError, not a symbol that's gone -- ast.parse
-    # raises, ast_hash returns None, exactly like a mid-edit save.
+    # raises on bytes that were read, so this is the `unreadable` branch
+    # (T-14), not `vanished` -- the file itself was read fine, it just
+    # doesn't parse.
     corrupted = original.replace(
         'def format_currency(cents: int) -> str:',
         'def format_currency(cents: int) -> str',
@@ -408,10 +612,10 @@ def test_transient_syntax_error_self_heals_into_changed(graph: Graph, ledger: Le
     units_2 = enumerate_units(graph, repo)
     diff_2 = sync_units(ledger, units_2, run_id_2)
 
-    assert target.id in diff_2.vanished
+    assert target.id in diff_2.unreadable
     row_2 = ledger.unit(target.id)
     assert row_2 is not None
-    assert row_2.status == 'vanished'
+    assert row_2.status == 'unreadable'
 
     # Restore the exact original content -- the same source ast_hash saw
     # before the corruption.
