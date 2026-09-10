@@ -35,7 +35,7 @@ it. This is accepted for phase 1 only because verifier source is
 model-authored against a trusted code graph, not attacker-supplied; it is not
 safe against an adversarial verifier author. Closing it for real requires
 process isolation, deferred to the phase-1.5 behavioral agent's sandbox; see
-DEC-1 and `tests/test_verify.py`'s dunder-traversal test, which pins this gap
+DEC-2 and `tests/test_verify.py`'s dunder-traversal test, which pins this gap
 in the suite rather than leaving it implied.
 
 **Sets vs. lists in a verifier's return value.** Every `Graph` accessor

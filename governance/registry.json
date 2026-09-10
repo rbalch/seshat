@@ -1,7 +1,7 @@
 {
   "controls": [
     {
-      "decision": "DEC-1",
+      "decision": "DEC-2",
       "enforcement": "block",
       "path": "controls/fitness/exec_confinement.py",
       "pragma": "supported",
@@ -28,9 +28,16 @@
     {
       "id": "DEC-1",
       "kind": "negative",
+      "status": "superseded",
+      "superseded_by": "DEC-2",
+      "title": "exec and eval are confined to src/seshat/verify.py"
+    },
+    {
+      "id": "DEC-2",
+      "kind": "negative",
       "status": "accepted",
       "superseded_by": null,
-      "title": "exec and eval are confined to src/seshat/verify.py"
+      "title": "exec and eval are confined to src/seshat/verify.py, everywhere code lives"
     }
   ]
 }
