@@ -39,6 +39,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -90,12 +91,12 @@ def test_smoke_agent_calls_both_tools_in_both_modes() -> None:
 class _RecordingHandler(BaseHTTPRequestHandler):
     """Records every POSTed JSON body onto `captured` (set by the server factory)."""
 
-    captured: list[dict] = []
+    captured: ClassVar[list[dict]] = []
 
     def log_message(self, *_args: object) -> None:  # silence default stderr logging
         pass
 
-    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler's naming
+    def do_POST(self) -> None:
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length)
         self.captured.append(json.loads(body))
