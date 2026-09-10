@@ -463,6 +463,43 @@ class Ledger:
         ).fetchall()
         return [_row_to_claim(row) for row in rows]
 
+    def claims_by_ids(self, claim_ids: list[str]) -> list[Claim]:
+        """Claims matching `claim_ids`, silently omitting any id that does not exist.
+
+        For T-10's `flag_candidates`: a model-authored `PatternDraft` cites
+        claim ids freely and may hallucinate one, so this looks them up
+        rather than raising — the caller decides what to do with whichever
+        ids come back real, exactly like `run_reflection` already does for
+        a concept's evidence ids.
+        """
+        if not claim_ids:
+            return []
+        placeholders = ','.join('?' for _ in claim_ids)
+        rows = self.conn.execute(
+            f'SELECT * FROM claims WHERE id IN ({placeholders})',
+            claim_ids,
+        ).fetchall()
+        return [_row_to_claim(row) for row in rows]
+
+    def set_candidate(self, claim_id: str, sightings: int) -> Claim:
+        """Set `candidate_rule=1` and `rule_sightings=sightings` on one claim.
+
+        T-03 shipped the two columns but no writer for them — this is that
+        writer, added for T-10's `flag_candidates`. Seshat only ever flags a
+        candidate here; nothing in this codebase unsets `candidate_rule`
+        (AGENTS.md "Never: emit a governance rule" — a human decides what,
+        if anything, happens next).
+        """
+        self.conn.execute(
+            'UPDATE claims SET candidate_rule = 1, rule_sightings = ? WHERE id = ?',
+            (sightings, claim_id),
+        )
+        self.conn.commit()
+        rows = self.claims_by_ids([claim_id])
+        if not rows:
+            raise KeyError(f'no such claim: {claim_id}')
+        return rows[0]
+
     def mark_stale_for_units(self, unit_ids: list[str], run_id: str) -> int:
         if not unit_ids:
             return 0
