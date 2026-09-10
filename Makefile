@@ -1,4 +1,4 @@
-.PHONY: help build init sync shell up down views views-check governance controls lint test check tasks
+.PHONY: help build init sync shell up down views views-check governance controls lint test check tasks task-symbols
 
 .DEFAULT_GOAL := help
 
@@ -96,3 +96,7 @@ check: ## The single gate: controls -> views --check -> governance -> tests
 PLAN ?=
 tasks: ## Live task status for $(PLAN), derived from PR state (make tasks PLAN=tasks/<slug>)
 	@uv run python scripts/task-status.py $(PLAN)
+
+FILE ?=
+task-symbols: ## Advisory symbol check for a task file (make task-symbols FILE=tasks/<slug>/T-NN-*.md)
+	@uv run python scripts/task-symbols.py $(FILE)
