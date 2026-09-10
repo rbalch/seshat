@@ -1514,7 +1514,10 @@ recorded here so they are not rediscovered later.
   calling `exec` or `eval` would never be seen by DEC-1's control. Neither current script
   does; this is a coverage gap, not a violation.
 - **Sightings:** 1.
-- **Action:** **open.** Not fixed in PR #11: widening a control's scan set is a governance
+- **Action:** **closed 2026-09-10 by DEC-2, PR #13** — the human chose to supersede before
+  CT-02 could add a third file to `scripts/`. Scan set derived, not listed. What the
+  supersession found on the way is logged as `F-44` and `F-45`.
+- **Was:** open. Not fixed in PR #11: widening a control's scan set is a governance
   change, and doing it inside a task that adds a file to the very directory being brought
   under the control is the wrong shape — a builder must never be in a position to
   influence the reach of the control that judges it. Belongs in its own change, on
@@ -1666,3 +1669,102 @@ recorded here so they are not rediscovered later.
   Always list — most of it is genuinely shape. It is an argument that the boundary
   reviewer reading `AGENTS.md` against the diff *is* the control, and the one thing that
   would break it is briefing that reviewer as if `RULES.md` were its whole job.
+
+### F-44 — a decision's stated rationale rested on a false claim about a linter
+
+- **Date:** 2026-09-10
+- **Task:** DEC-2 (no task file; dispatched from `F-42`'s triage)
+- **Bin:** 2
+- **Claim:** DEC-1's Context said ruff's `S102` "is enabled in ruff's default rule set, and
+  this repo's `pyproject.toml` never opted out of it, so the count of `exec`/`eval` sites
+  sat at zero without anyone deciding it should", and that a `per-file-ignores` entry
+  "buys T-05 its one legitimate call". None of it is true. `pyproject.toml`'s
+  `extend-select` is `["B", "I", "RUF", "UP"]` — no `S` — and flake8-bandit is not in
+  ruff's default selection. A file containing `x = eval("1")` passes `uv run ruff check`
+  in `src/seshat/` and in `scripts/` alike. The per-file-ignore is inert and the
+  "accidental guard" the rationale describes never existed.
+- **Sightings:** **`F-25`: 3.** After T-08's inverted `CODEGRAPH_MCP_TOOLS` claim and
+  CT-02's `PostToolUse` output channel (`F-40`). **First time it is in a governance
+  decision rather than a task file.**
+- **Action:** corrected in DEC-2's Context, PR #13. DEC-1 left as written with a note
+  pointing at DEC-2 — history is a record, not a constraint. Both the control author and
+  the boundary reviewer reproduced the probe independently before relying on it.
+- **Notes:** The checkable claim is `F-25`'s, now on its third sighting: **a written claim
+  about an installed tool's observable behaviour must name the command that shows it.**
+  Three sightings is the rule of three, and this is where the honest answer is that **no
+  control gets authored.** A machine cannot check whether a paragraph of English is true
+  about ruff. What can be automated is narrower and was floated at `F-1`, `F-24`, `F-25`
+  and `F-29`: turn the claim into a command and run it. That is a habit and a brief line,
+  not a CI gate, and `scripts/task-symbols.py` (PR #11) is the first instalment of it.
+  The reason this instance is worse than the two task-file ones: a task file is read once
+  by a builder and thrown away, while a decision is the durable record that tells every
+  future reader why a rule exists. DEC-1's false rationale would have justified narrowing
+  the control one day — "ruff already covers the rest" — and nobody would have checked.
+  Worth noting the direction the error pointed: the rationale *overstated* existing
+  protection. An overstated guard is the dangerous kind, because it argues for doing less.
+
+### F-45 — the control that enforces a rule had no tests, and hid two false negatives
+
+- **Date:** 2026-09-10
+- **Task:** DEC-2
+- **Bin:** 2
+- **Claim:** `controls/fitness/exec_confinement.py` has gated every build since T-05 and
+  had no test of its own. Reviewers proved it by deleting the `tests/fixtures/` exclusion
+  and inverting the hidden-directory check: the control printed `ok` and exited 0 both
+  times, because nothing in the tree happened to trip the broken logic. Two live false
+  negatives were then found in the same file: (1) `rglob('*.py')` does not descend into
+  symlinked directories, so `exec` behind one was invisible and the control reported `ok`;
+  (2) a decode or syntax failure aborted the scan, so a violation later in sort order went
+  unreported. Neither was introduced by this change; both had been there.
+- **Sightings:** **As the untested-guard family (`F-38`), 2.** Same week, different code:
+  a central guard whose deletion no test noticed. Counted separately from `F-38` because
+  that was a new tool's own suite and this is a CI gate that has been running for days.
+- **Action:** fixed in PR #13 — 26 tests in `tests/controls/test_exec_confinement.py`,
+  each building its tree in `tmp_path`, each proven red by breaking the guard it pins.
+  Both false negatives fixed with tests. No new control; the fix is that the control now
+  has tests, which is the ordinary thing that should have been true from the start.
+- **Notes:** The checkable claim, and it is the sharpest one in this log: **a fitness
+  control is code that decides whether a build passes, and it needs tests at least as much
+  as the code it judges.** This one is mechanically checkable — every file under
+  `controls/fitness/` should have a corresponding test module — and at a third sighting it
+  is a genuine candidate for a control about controls.
+  Being honest about what this says for the harness's own falsifiable test: the governance
+  layer went several days enforcing a rule with a gate that could have been silently
+  broken by one edit, and the thing that found it was not the harness but a reviewer
+  instructed to delete guards and see what noticed. That technique — `F-26`, `F-38`, and
+  now this — has found the three most serious defects in this project. If any single
+  practice earns promotion from this log, it is that one, and it is a brief line rather
+  than a control.
+
+### F-46 — harness: two rounds of guarding a risky mechanism, then removing it
+
+- **Date:** 2026-09-10
+- **Task:** DEC-2
+- **Bin:** unbinned harness finding
+- **Claim:** Symlink descent entered the control as a fix for a real finding (code behind
+  a symlinked directory was invisible). The orchestrator ruled it should descend into
+  in-repo links and fail closed on links escaping the repo. That closed the reported hole
+  and opened a worse one: a symlink with an ordinary name pointing at an excluded
+  directory bypassed the name-based exclusion entirely, because the exclusion checked the
+  link's name and the descent checked the resolved path, and the two never spoke. A link
+  to `.venv` pulled roughly a hundred third-party violations into the gate and took the
+  run from 0.4s to 18s; a link to `.claude/worktrees/` reached full checkouts of this
+  repo on other branches. The human's ruling was to remove the mechanism rather than guard
+  it a third time.
+- **Sightings:** 1.
+- **Action:** removed in PR #13. The blind spot is now stated in DEC-2's Rule and reported
+  by an informational line that never affects the exit code.
+- **Notes:** Recorded against the orchestrator, since the fail-closed ruling was mine and
+  it was wrong in a specific, learnable way: **I ruled on the escape case, which was the
+  case in front of me, and never asked what else a symlink could point at.** Fail-closed
+  reasoning felt rigorous and was, within the one scenario I considered. The reviewer that
+  found it did the thing I had not: enumerated targets rather than directions.
+  The pattern worth keeping is the human's, not mine. Two rounds of patching a mechanism
+  that was never required — DEC-1, DEC-2 and `F-42` all concern a hand-maintained
+  directory list, and none of them asked for symlink handling — and the resolution was to
+  delete the mechanism and write the resulting gap into the rule. A blind spot that is
+  documented, reported on every run, and cannot break the build is a better artifact than
+  a clever guard nobody can reason about.
+  Also worth recording: the builder agreed with the reversal unprompted and named the
+  accepted cost itself, and both reviewers independently endorsed the removal over their
+  own earlier positions. Nobody defended their previous answer.
