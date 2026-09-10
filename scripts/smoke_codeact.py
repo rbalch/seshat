@@ -30,11 +30,15 @@ import sys
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from nooa import Agent
 from nooa.decorators import strategy
 from nooa.strategies import CodeActStrategy
 from nooa.strategies.pure_python import PurePythonStrategy
+
+if TYPE_CHECKING:
+    from nooa.unifiedllm import UnifiedLLM
 
 from seshat.config import ConfigError, Settings
 
@@ -57,23 +61,24 @@ class SmokeResult:
     elapsed: float
 
 
-class _SmokeTools:
+class _SmokeAgentBase(Agent):
     """`add`/`lookup`: the two tools every generation method below must call.
 
-    Mixed in ahead of `Agent` so `CodeActSmokeAgent`/`PurePythonSmokeAgent` share one
-    tool implementation and one token meter, differing only in which `@strategy`
-    decorates their `run` method.
+    Base class for `CodeActSmokeAgent`/`PurePythonSmokeAgent` so both share one tool
+    implementation and one token meter (mirrors `Worker._track_tokens`'s
+    `llm_call` middleware pattern in `src/seshat/agents/worker.py`), differing only in
+    which `@strategy` decorates their `run` method.
     """
 
-    def __init__(self, llm: object) -> None:
-        super().__init__(llm=llm)  # type: ignore[call-arg]
+    def __init__(self, llm: UnifiedLLM) -> None:
+        super().__init__(llm=llm)
         self.add_called = False
         self.lookup_called = False
         self.tokens_used = 0
-        self.event_manager.intercept('llm_call', self._track_tokens)  # type: ignore[attr-defined]
+        self.event_manager.intercept('llm_call', self._track_tokens)
 
-    async def _track_tokens(self, ctx: object, nxt: object) -> object:
-        ctx = await nxt(ctx)  # type: ignore[operator]
+    async def _track_tokens(self, ctx: Any, nxt: Any) -> Any:
+        ctx = await nxt(ctx)
         usage = getattr(ctx, 'response', None)
         usage = getattr(usage, 'usage', None) if usage is not None else None
         if usage:
@@ -91,7 +96,7 @@ class _SmokeTools:
         return _FACTS.get(name, 'unknown')
 
 
-class CodeActSmokeAgent(_SmokeTools, Agent):
+class CodeActSmokeAgent(_SmokeAgentBase):
     """The two-tool smoke agent, driven by `CodeActStrategy` (the default)."""
 
     @strategy(CodeActStrategy())
@@ -103,7 +108,7 @@ class CodeActSmokeAgent(_SmokeTools, Agent):
         ...
 
 
-class PurePythonSmokeAgent(_SmokeTools, Agent):
+class PurePythonSmokeAgent(_SmokeAgentBase):
     """The same smoke agent, driven by `PurePythonStrategy` for comparison."""
 
     @strategy(PurePythonStrategy())

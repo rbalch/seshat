@@ -48,9 +48,7 @@ SCRIPT = ROOT / 'scripts' / 'smoke_codeact.py'
 
 pytestmark = pytest.mark.integration
 
-skip_without_llm_host = pytest.mark.skipif(
-    not os.getenv('LLM_HOST'), reason='needs a live LLM_HOST'
-)
+skip_without_llm_host = pytest.mark.skipif(not os.getenv('LLM_HOST'), reason='needs a live LLM_HOST')
 
 
 # -- test 1: the live two-tool CodeAct smoke, against the real ambient LLM_HOST -----
@@ -74,8 +72,7 @@ def test_smoke_agent_calls_both_tools_in_both_modes() -> None:
     for mode in ('thinking', 'no-thinking'):
         line = next((l for l in result.stdout.splitlines() if f'[{mode}]' in l), None)
         assert line is not None, (
-            f'CHECK 1/2 FAILED (smoke agent tool-calls): no [{mode}] line in stdout:\n'
-            f'{result.stdout}'
+            f'CHECK 1/2 FAILED (smoke agent tool-calls): no [{mode}] line in stdout:\n{result.stdout}'
         )
         assert 'add_called=True' in line and 'lookup_called=True' in line, (
             f'CHECK 1/2 FAILED (smoke agent tool-calls): [{mode}] run did not call '
@@ -93,8 +90,8 @@ class _RecordingHandler(BaseHTTPRequestHandler):
 
     captured: ClassVar[list[dict]] = []
 
-    def log_message(self, *_args: object) -> None:  # silence default stderr logging
-        pass
+    def log_message(self, format: str, *args: object) -> None:
+        pass  # silence BaseHTTPRequestHandler's default stderr logging
 
     def do_POST(self) -> None:
         length = int(self.headers.get('Content-Length', 0))

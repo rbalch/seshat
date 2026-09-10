@@ -82,6 +82,7 @@ include = [
   "src/seshat/agents/worker.py",
   "src/seshat/agents/reflection.py",
   "src/seshat/agents/answer.py",
+  "scripts/smoke_codeact.py",
 ]
 
 [tool.ty.overrides.rules]
