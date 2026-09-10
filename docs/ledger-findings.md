@@ -1842,3 +1842,120 @@ recorded here so they are not rediscovered later.
   for a second sighting where the environment difference is subtler than a missing binary:
   a version skew, a locale, a filesystem case rule. That one will not announce itself with
   `Errno 2`.
+
+### F-42 — harness: the gate scanned agent worktrees and failed on a rule nobody had violated
+
+- **Date:** 2026-09-10
+- **Task:** T-12 (found on `develop`, before the task was dispatched)
+- **Bin:** unbinned harness finding
+- **Claim:** `make check` was red on a clean `develop` with 8 failures, none of them in
+  the repository. `governance/scripts/check_governance.py`'s `scannable_files()` walked
+  `os.walk(REPO_ROOT)` pruning only a named allowlist of directories, so it descended
+  into `.claude/worktrees/`, where nine leftover agent worktrees held whole checkouts of
+  this repo at commits predating the DEC-1 → DEC-2 supersession. Each one's copy of
+  `controls/fitness/exec_confinement.py` still carried `governance: enforces DEC-1`, and
+  check 4 reported each as a live unfinished supersession.
+- **Sightings:** 1.
+- **Action:** **fixed on develop in `9ee164b`** — the walk now prunes any dot-prefixed
+  directory. The nine merged worktrees and five scratch review checkouts were pruned by
+  the human's decision. No control; this *is* the control, corrected.
+- **Notes:** The interesting part is not the bug, it is what the bug is made of. A
+  governance harness whose integrity check cannot tell repository content from a
+  *checkout of the repository's own past* will fail the moment its own workflow leaves
+  one lying around — and this workflow leaves one per task, by design. The failure was
+  perfectly informative and completely wrong: every message was true of the file it
+  named, and none of them was about this repo.
+  DEC-2's own control already excluded dot-prefixed path components, and had done since
+  it was written. The integrity checker did not, and the two had never been compared.
+  That is the checkable claim worth keeping and it is narrow: **the pragma scanner and
+  the controls it validates agree on which paths are in scope.** A test that asserts the
+  two exclusion rules produce the same file set is mechanical and cheap. Holding at one
+  sighting; if a second scope disagreement appears, write it.
+  Cost was real but bounded: the gate was red before the task started, which is the one
+  state the orchestrate skill says you must not build from, because you can no longer
+  tell which failures a task caused. Worth noting that this had been sitting on `develop`
+  through the T-11 triage commit and nobody had run `make check` on a clean tree since.
+
+### F-43 — the acceptance suite's red was a missing module, which proves nothing
+
+- **Date:** 2026-09-10
+- **Task:** T-12
+- **Bin:** 2
+- **Claim:** An acceptance test's red proof must fail for the reason the criterion is
+  about, not because the module under test does not exist yet. All ten of T-12's
+  acceptance tests went red at `7bf4564` with one error —
+  `ModuleNotFoundError: No module named 'seshat.agents.answer'` — plus `ask` missing
+  from `--help`. That red is real and it is nearly uninformative: it proves the module
+  is new and says nothing about whether a single assertion inside those tests bites.
+- **Sightings:** 1.
+- **Action:** soft — no fix to the code. The reviewer was briefed to treat the weak red
+  as the actual work of the review and mutation-tested every assertion instead:
+  `validate_answer` collapsed on any unknown id, and separately never collapsing;
+  `render_answer` ignoring `claim_status`; `search_claims` collapsing its two fields.
+  Each was caught by a distinct test. The tests turned out to be good; nothing in the
+  red proof had told us that.
+- **Notes:** This is structural, not a lapse by this builder. **Every task in this plan
+  that introduces a new module gets this red for free**, and the harness currently
+  accepts it as the red-then-green evidence the whole loop is built on. The acceptance-
+  tests-first rule was written to stop tests being retrofitted to whatever the code
+  happened to do; it does not, on its own, produce evidence that the tests can fail for
+  the right reason.
+  The checkable form is a real technique with a name — mutation testing — and proposing
+  it wholesale for one sighting would be the disproportionate answer `F-11` already
+  refused. The cheap version is a line in the reviewer brief, and it earned its keep
+  here on the first outing: when the red proof's failure mode is uniform across every
+  test (one import error, one missing subcommand), the reviewer mutates the
+  implementation per criterion instead of trusting the red. Related to `F-11` — there
+  the fixture could not express the failure, here the red does not exercise the
+  assertion — and both are the same underlying question: *what would make this test go
+  red, and is it the thing the criterion is about?* If a third variant of that question
+  appears, the family is worth a decision.
+
+### F-44 — a fix round's regression test was proven red by mutation, not by absence
+
+- **Date:** 2026-09-10
+- **Task:** T-12
+- **Bin:** unbinned harness finding — a note on `F-9` working
+- **Claim:** `F-9` recorded twice that fix-round regression tests ship with no red-proof
+  requirement, and its second sighting pinned the cause: an instruction repeated
+  per-item gets forgotten on the item that looks too small to need it. On T-12 the fix
+  round's single item was coverage for a behaviour that was **already correct**, so the
+  usual red proof — check the pre-fix file out and watch it fail — was unavailable by
+  construction. The builder was told to mutate `_concept_citation_display` to bypass
+  `format_citation` and prove the red that way. It did, and reported the failing output
+  verbatim; the reviewer reproduced the same mutation independently and matched it.
+- **Sightings:** n/a — recorded as evidence that `F-9`'s fix generalises.
+- **Notes:** Worth writing down because it closes a gap in `F-9`'s own proposed remedy.
+  "Prove the regression test fails against the unfixed code" is unimplementable when
+  there is no unfixed code — when the fix is a test for behaviour that already works,
+  which is exactly the shape of a coverage gap found in review. Mutation is the general
+  form and absence is the special case, so the builder brief should say **mutate the
+  implementation and watch the new test fail**, which covers both.
+  One more thing the reviewer caught that the builder did not, and it is the reason to
+  ask for an independent reproduction rather than accept the report: one of the three
+  new tests stayed green under the builder's mutation. The builder called that "expected
+  and consistent," which was true but incomplete. The reviewer went looking for a
+  mutation that *would* catch it, found one — removing the concept fallback from
+  `_citation_display`, the function `validate_answer` actually routes through — and so
+  established the test was insensitive to one mutation rather than insensitive to all of
+  them. A new test no mutation can redden is decoration, and only the second check tells
+  you which you have.
+
+### Planning notes from T-12
+
+- **The task-critic earned its keep, quietly.** Three nits, no blockers, and all three
+  were shape ambiguities rather than missing symbols: whether the answer collapses when
+  *any* or *every* sentence loses its citation; one word, "citation", naming both a bare
+  id and a rendered display string in adjacent bullets; and a memory-absence criterion
+  loose enough that renaming a method would satisfy it. None would have failed loudly.
+  All three would have surfaced as review findings or, worse, as a plausible wrong
+  implementation with green tests. This is the first task where the critic's whole value
+  was in disambiguation rather than in catching a symbol that does not exist, which is
+  the shape `F-1`, `F-11` and the T-03 notes kept asking for a stage to catch.
+- **A pre-existing bug found by a reviewer, out of scope, and left alone.**
+  `seshat scan`'s `--model` and `--no-thinking` are parsed into `ScanOptions` and never
+  reach the worker's completion client. It is real, confirmed by execution, and it dates
+  from T-11. The code reviewer reported it as a note rather than a finding and it was
+  not fixed here — `ask`'s own flags are wired correctly and verified. Recorded so it is
+  not rediscovered: it needs its own task, and it is the second time a CLI option has
+  been captured but not applied.
