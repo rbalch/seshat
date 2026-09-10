@@ -144,7 +144,7 @@ def test_dunder_traversal_escape_is_a_known_accepted_gap_not_correct_behaviour(g
     through any builtin at all — here, `json`'s own loader object's class's
     `__init__`'s `__globals__` dict, which contains the running interpreter's
     `sys` module. Closing this requires process isolation, deferred to
-    phase 1.5 (see the `verify.py` module docstring and DEC-1). If this test
+    phase 1.5 (see the `verify.py` module docstring and DEC-2). If this test
     starts failing, the gap has closed and those two places should be
     updated to say so — this test is not the thing to fix to make it pass.
     """

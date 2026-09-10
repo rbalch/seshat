@@ -66,14 +66,14 @@ def _has_check_entry_point(source: str) -> bool:
     `def check(graph)` beside a differently-named function, which would
     sail the retry guard and only be caught later, and further away from
     its cause, by T-05's runner. Never imports `seshat.verify` for this —
-    that module is the exec-bearing runner (DEC-1) and pulling it in here
+    that module is the exec-bearing runner (DEC-2) and pulling it in here
     would drag its confined surface across the module boundary for the
     sake of this check.
 
     This predicate must agree with `_find_check_function` in
     `src/seshat/verify.py`, which is the authoritative one — it is the
     version that actually runs the source — copied here rather than
-    imported for the DEC-1 reason above: a top-level `ast.FunctionDef`
+    imported for the DEC-2 reason above: a top-level `ast.FunctionDef`
     (never `ast.AsyncFunctionDef`; T-05 always rejects an async `check`)
     named `check` with a non-empty `args.args`. T-05 then calls it as
     `check(graph)`, so any further parameters must default or the call

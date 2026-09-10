@@ -52,16 +52,18 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# See DEC-1.
+# See DEC-2. Currently a no-op: "S" is not in [tool.ruff.lint] extend-select above, so
+# S102 is never active here regardless of this ignore -- verified directly (DEC-2's
+# Context). Kept anyway: harmless now, becomes load-bearing the moment "S" is selected.
 "src/seshat/verify.py" = ["S102"]
 
 [tool.ruff.format]
 quote-style = "single"
 
 [tool.ty.environment]
-# The governance scripts are executables, not an installed package, so ty needs the
-# same search path pytest gets from `pythonpath` below.
-extra-paths = ["governance/scripts"]
+# The governance scripts and fitness controls are executables, not an installed
+# package, so ty needs the same search paths pytest gets from `pythonpath` below.
+extra-paths = ["governance/scripts", "controls/fitness"]
 
 [tool.ty.src]
 # tests/fixtures/ is committed test data; see the ruff exclude above.
@@ -82,7 +84,7 @@ empty-body = "ignore"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "governance/scripts"]
+pythonpath = ["src", "governance/scripts", "controls/fitness"]
 addopts = "-ra --strict-markers --strict-config"
 xfail_strict = true
 markers = [

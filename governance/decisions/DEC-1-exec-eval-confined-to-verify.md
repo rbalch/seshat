@@ -1,16 +1,22 @@
 ---
 id: DEC-1
 title: exec and eval are confined to src/seshat/verify.py
-status: accepted
+status: superseded
 kind: negative
 created: 2026-09-07
-superseded_by: null
-controls:
-  - path: controls/fitness/exec_confinement.py
-    type: fitness_fn
-    enforcement: block
-    pragma: supported
+superseded_by: DEC-2
+controls: []
 ---
+
+**Superseded by [DEC-2](DEC-2-exec-eval-confined-to-verify.md).** DEC-2 carries the
+same prohibition forward and widens its scope to every directory that holds
+first-party Python in this repo, `scripts/` included — a gap this decision's own Rule
+text left uncovered (see `docs/ledger-findings.md` F-42). DEC-2's Context also corrects
+a false claim made below: ruff's `S102` was never active in this repo, so the
+"accidental guard" this decision describes never existed. This record is kept as
+written, uncorrected, because the ledger is a record, not a constraint — see
+`governance/scripts/check_governance.py`'s scoping note that checks apply to live
+decisions only.
 
 ## Rule
 A call to `exec` or `eval` may appear only in `src/seshat/verify.py`. No other file
