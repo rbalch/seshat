@@ -452,3 +452,45 @@ def test_schema_version_is_1(tmp_repo: Path):
     with Ledger.open(tmp_repo) as ledger:
         row = ledger.conn.execute('SELECT version FROM schema_version').fetchone()
         assert row[0] == 1
+
+
+# --- T-11: two new concept queries the CLI's `concept` command needs -------
+
+
+def test_concept_fetches_one_concept_by_id(tmp_repo: Path):
+    with Ledger.open(tmp_repo) as ledger:
+        run = ledger.create_run(commit_sha='abc', mode='claims', status='running')
+        claim = _setup_claim_with_status(ledger, run.id, 'confirmed')
+        stored = ledger.add_concept(make_concept(created_run=run.id, title='Order lifecycle'), [claim.id])
+
+        found = ledger.concept(stored.id)
+
+        assert found is not None
+        assert found.id == stored.id
+        assert found.title == 'Order lifecycle'
+
+
+def test_concept_returns_none_for_unknown_id(tmp_repo: Path):
+    with Ledger.open(tmp_repo) as ledger:
+        assert ledger.concept('no-such-concept') is None
+
+
+def test_concept_evidence_lists_a_concepts_claim_ids(tmp_repo: Path):
+    with Ledger.open(tmp_repo) as ledger:
+        run = ledger.create_run(commit_sha='abc', mode='claims', status='running')
+        claim1 = _setup_claim_with_status(ledger, run.id, 'confirmed')
+        unit2 = make_unit('u2-confirmed', repo_id='ignored', run_id=run.id)
+        ledger.upsert_unit(unit2, run.id)
+        claim2 = ledger.add_claim(make_claim(unit2.id, run.id))
+        claim2 = ledger.set_claim_status(claim2.id, 'confirmed', run.id)
+
+        stored = ledger.add_concept(make_concept(created_run=run.id), [claim1.id, claim2.id])
+
+        evidence = ledger.concept_evidence(stored.id)
+
+        assert set(evidence) == {claim1.id, claim2.id}
+
+
+def test_concept_evidence_empty_for_unknown_concept(tmp_repo: Path):
+    with Ledger.open(tmp_repo) as ledger:
+        assert ledger.concept_evidence('no-such-concept') == []
