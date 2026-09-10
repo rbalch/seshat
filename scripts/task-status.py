@@ -46,7 +46,7 @@ def pr_index() -> dict[str, dict]:
     rank = {'MERGED': 2, 'OPEN': 1, 'CLOSED': 0}
     index: dict[str, dict] = {}
     for pr in json.loads(raw):
-        m = re.match(r'(T-\d+):', pr['title'])
+        m = re.match(r'([A-Z]+-\d+):', pr['title'])
         if not m:
             continue
         tid = m.group(1)
@@ -56,7 +56,11 @@ def pr_index() -> dict[str, dict]:
 
 
 def main(plan_dir: str) -> None:
-    tasks = [frontmatter(p) for p in sorted(Path(plan_dir).glob('T-*.md'))]
+    # Ids are plan-qualified by prefix (T-NN for seshat-phase-one, CT-NN for
+    # critic-tooling, ...) because PR titles carry the id alone and nothing else
+    # says which plan a PR belongs to.
+    files = [p for p in sorted(Path(plan_dir).glob('*.md')) if p.name != 'README.md']
+    tasks = [frontmatter(p) for p in files]
     prs = pr_index()
     status: dict[str, str] = {}
     for t in tasks:  # sorted by id, deps always point backwards
