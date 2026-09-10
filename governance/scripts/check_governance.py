@@ -93,7 +93,11 @@ def scannable_files() -> list[Path]:
     """Every file a pragma could meaningfully live in. Skips prose and vendored trees."""
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(REPO_ROOT):
-        dirnames[:] = sorted(name for name in dirnames if name not in SKIP_DIRS)
+        # Hidden directories are never repo content: `.claude/worktrees/` holds whole
+        # checkouts of this repo at other commits, and scanning one reports a pragma
+        # from a superseded past as a live failure here. DEC-2's own control skips
+        # dot-prefixed components for the same reason.
+        dirnames[:] = sorted(name for name in dirnames if name not in SKIP_DIRS and not name.startswith('.'))
         for filename in sorted(filenames):
             path = Path(dirpath) / filename
             if path.suffix.lower() in SKIP_SUFFIXES:
