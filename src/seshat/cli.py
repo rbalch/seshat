@@ -1,10 +1,11 @@
-"""seshat console script (plan.md §7, minus `ask` — T-12 fills that in).
+"""seshat console script (plan.md §7).
 
-Six subcommands: `scan` runs T-09's `run_scan` with the real worker factory
+Seven subcommands: `scan` runs T-09's `run_scan` with the real worker factory
 and T-10's reflection hook; `status`, `units`, `claims`, `concept`, `drift`
-read the ledger through `Ledger`'s typed methods and print it — no SQL here,
-see `seshat/ledger/store.py` and AGENTS.md. `argparse` only; no rich/click/
-typer.
+read the ledger through `Ledger`'s typed methods and print it; `ask` (T-12)
+drives T-12's `AnswerAgent` over the same ledger, once for `-q QUESTION` or
+in a stdin prompt loop otherwise — no SQL here, see `seshat/ledger/store.py`
+and AGENTS.md. `argparse` only; no rich/click/typer.
 
 `worker_factory`, `reflect_after_scan` and `indexer` are module-level names
 (scope item 1 of tasks/seshat-phase-one/T-11-readonly-cli.md) precisely so a
@@ -16,16 +17,23 @@ no model, no network, and no `codegraph` subprocess — `main(argv)` itself
 stays argv-only, with no test-only parameter. `indexer` defaults to
 `seshat.scan`'s own real indexer (`codegraph init`/`codegraph sync`), so an
 unpatched `seshat scan` still indexes for real; only a test patches it away.
+
+`answer_agent_factory` is `ask`'s counterpart to `worker_factory` — a
+module-level name so a test can `monkeypatch.setattr(cli,
+'answer_agent_factory', ...)` and drive `ask` through a `FakeLLMClient`-backed
+`AnswerAgent` with no model, no network.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
+from seshat.agents.answer import AnswerAgent, render_answer, validate_answer
 from seshat.agents.reflection import reflect_after_scan
 from seshat.config import ConfigError, Settings
 from seshat.graph import Graph
@@ -35,7 +43,7 @@ from seshat.render import format_citation
 from seshat.scan import IndexFailed, ScanOptions, run_scan
 from seshat.scan import _default_indexer as indexer
 
-__all__ = ['build_parser', 'indexer', 'main', 'reflect_after_scan', 'worker_factory']
+__all__ = ['answer_agent_factory', 'build_parser', 'indexer', 'main', 'reflect_after_scan', 'worker_factory']
 
 
 # -- the worker factory: module-level so a test can patch it ----------------
@@ -75,6 +83,23 @@ def worker_factory(repo: Path, settings: Settings) -> Callable[[], Any]:
     return factory
 
 
+def answer_agent_factory(ledger: Ledger, settings: Settings, *, model: str | None = None) -> AnswerAgent:
+    """Build an `AnswerAgent` wired to the `answer` role's model.
+
+    `model`, when given, overrides the role's configured model string for
+    this one call (`ask --model`) without mutating `settings` itself —
+    `Settings.llm_kwargs` has no per-call override of its own, so this is
+    the narrowest way to honour the flag.
+    """
+    from nooa.unifiedllm import CompletionClient
+
+    kwargs = settings.llm_kwargs('answer')
+    if model:
+        kwargs['model'] = model
+    llm = CompletionClient(**kwargs)
+    return AnswerAgent(llm, ledger)
+
+
 # -- argument parsing ---------------------------------------------------------
 
 
@@ -83,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog='seshat',
         description='seshat: a ledger of verified claims about a codebase.',
     )
-    subparsers = parser.add_subparsers(dest='command', metavar='{scan,status,units,claims,concept,drift}')
+    subparsers = parser.add_subparsers(dest='command', metavar='{scan,status,units,claims,concept,drift,ask}')
 
     scan_parser = subparsers.add_parser('scan', help='scan a repo and grow its ledger')
     scan_parser.add_argument('repo')
@@ -111,6 +136,12 @@ def build_parser() -> argparse.ArgumentParser:
     concept_parser.add_argument('id_or_query')
 
     subparsers.add_parser('drift', help='print stale claims and concepts, grouped by unit').add_argument('repo')
+
+    ask_parser = subparsers.add_parser('ask', help='chat over the ledger via the answer agent')
+    ask_parser.add_argument('repo')
+    ask_parser.add_argument('-q', '--question', default=None, help='answer one question and exit')
+    ask_parser.add_argument('--no-thinking', action='store_true')
+    ask_parser.add_argument('--model', default=None)
 
     return parser
 
@@ -279,6 +310,43 @@ def _cmd_drift(ledger: Ledger) -> int:
     return 0
 
 
+# -- ask -----------------------------------------------------------------
+
+
+def _ask_once(agent: AnswerAgent, ledger: Ledger, question: str) -> None:
+    """Answer `question`, validate it, and print the rendered result."""
+    raw_answer = asyncio.run(agent.answer(question))
+    validated = validate_answer(raw_answer, ledger)
+    print(render_answer(validated, ledger))
+
+
+def _cmd_ask(args: argparse.Namespace, ledger: Ledger) -> int:
+    try:
+        settings = Settings.load()
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    settings = settings.with_thinking(not args.no_thinking)
+    agent = answer_agent_factory(ledger, settings, model=args.model)
+
+    if args.question is not None:
+        _ask_once(agent, ledger, args.question)
+        return 0
+
+    while True:
+        try:
+            line = input('> ')
+        except EOFError:
+            break
+        if line.strip() == 'exit':
+            break
+        if not line.strip():
+            continue
+        _ask_once(agent, ledger, line)
+    return 0
+
+
 # -- dispatch -------------------------------------------------------------
 
 
@@ -314,6 +382,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_concept(ledger, args.id_or_query)
         if args.command == 'drift':
             return _cmd_drift(ledger)
+        if args.command == 'ask':
+            return _cmd_ask(args, ledger)
 
     parser.print_help()
     return 0
