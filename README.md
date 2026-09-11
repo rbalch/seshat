@@ -71,6 +71,41 @@ make controls    # every controls/fitness/*.py, plus ruff and ty
 make test        # pytest
 ```
 
+## Running against the Spark
+
+Every agent turn in this repo reads its model from `Settings` (`src/seshat/config.py`),
+which requires `LLM_HOST` — the base URL of the vLLM server on the DGX Spark, e.g.
+`http://spark.local:8000`. Nothing here ever reads a `.env` file itself; export it in
+your shell.
+
+Before pointing the worker or answer agents at the Spark, run the smoke script: it
+drives a two-tool NOOA CodeAct agent (`add`, `lookup`) through `hosted_vllm/qwen3.8-27b`
+twice — thinking on, then `--no-thinking` — and exits 0 only if both tools were called
+both times.
+
+```bash
+LLM_HOST=http://<spark-host>:<port> uv run python scripts/smoke_codeact.py
+LLM_HOST=... uv run python scripts/smoke_codeact.py --strategy pure-python  # PurePythonStrategy, for comparison
+```
+
+The integration test suite includes the smoke checks above plus the live
+`VerifierAuthor.author` and `Worker.survey` checks (`tests/agents/test_verifier_author.py`,
+`tests/agents/test_worker.py`):
+
+```bash
+LLM_HOST=http://<spark-host>:<port> uv run pytest tests/integration -m integration
+```
+
+Without `LLM_HOST` set, `uv run pytest tests/integration -q` collects the same tests and
+skips every one — always exit 0, never a silent zero-tests-collected pass.
+
+**A failing smoke is not a bug in this script.** It is the finding plan §8 exists to
+produce: whether a 27B model on this hardware can reliably drive CodeAct's native
+tool-calling loop, or whether the worker and answer agents belong on
+`PurePythonStrategy` instead. Record the outcome in the spec's open questions and change
+the strategy in config — never add a retry or a fallback here to make a flailing model
+look like it passed.
+
 ## How work gets done
 
 ```
