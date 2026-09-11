@@ -1821,7 +1821,7 @@ recorded here so they are not rediscovered later.
   central quality mechanism has a blind spot exactly the size of the difference between
   that machine and the runner, and separate checkouts do nothing about it because the
   thing being shared is the host, not the tree.
-- **Sightings:** 1.
+- **Sightings:** 2 — second 2026-09-11, T-15, see `F-52`.
 - **Action:** soft — noted. Fixed the defect, not the loop.
 - **Notes:** This is the first finding in the log where the harness did not merely miss
   something but was *structurally incapable* of catching it, and it is worth being precise
@@ -2176,3 +2176,69 @@ recorded here so they are not rediscovered later.
   Recorded while fixing this one: the builder swept the rest of the suite for the same
   shape and found `uv`, `git` and `sys.executable`, all of which a runner has. So the
   gap today is exactly one tool, and it is now declared.
+
+### F-52 — a developer `.env` two directories up turned five skips into live tests
+
+- **Date:** 2026-09-11
+- **Task:** T-15
+- **Bin:** 2 — second sighting of `F-41`, from the other direction
+- **Claim:** The builder's `make check` went red on the fix round for three tests it had
+  not touched. `nooa` calls `load_dotenv()` at import time; `python-dotenv` walks up from
+  the importing file and found a gitignored `/app/.env`, written by the human that
+  afternoon for Spark work, two directories above the worktree. `LLM_HOST` leaked into
+  the process, five `skipif(not os.getenv('LLM_HOST'))` guards stopped skipping, and
+  three `tests/test_smoke_script.py` subprocess tests that strip `LLM_HOST` from the
+  child's env failed anyway, because the child re-imports and re-leaks. The same SHA was
+  green in a checkout under `/tmp`, and will be green in CI, where no `.env` exists.
+- **Sightings:** As `F-41`, 2. As a repo defect, 1.
+- **Action:** soft — verified the gate from a checkout outside `/app`; PR opened; no
+  code change under T-15, whose `files:` list does not include `conftest.py`.
+- **Notes:** `F-41` asked to watch for an environment difference subtler than a missing
+  binary, and this is it, with the sign flipped: the developer's host has *more* than
+  the runner, not less, and the surplus is a secret-shaped file the repo is told to
+  ignore. Every agent in the loop inherits it because it lives above every worktree.
+  The checkable claim is narrow and worth a small task, not a control: **the test suite
+  is not hermetic against a repo-root `.env`**. `tests/conftest.py` should clear the
+  variables the skip guards read before any `seshat` import, and the subprocess tests
+  should make the child immune the same way. Recorded as a follow-up task, not fixed
+  here. The builder's report was exemplary: it found the file, dated it, reproduced the
+  leak with a one-liner, isolated the failing set under `env LLM_HOST=`, and declined
+  to patch outside its footprint.
+
+### F-53 — the cap arithmetic nobody tested, found by mutation for the fifth time
+
+- **Date:** 2026-09-11
+- **Task:** T-15
+- **Bin:** 2 — mutation-testing family (`F-26`, `F-38`, `F-45`, `F-48`), fifth sighting
+- **Claim:** Scope item 3 asked for a naming line capped at three files with `and N
+  more` past it. The builder wrote the cap and no test drove more than one unreadable
+  file. The reviewer planted `remainder + 1`; the whole suite and `make check` stayed
+  green. One fix round added tests at 5 files, at exactly 3, and for an unresolvable id;
+  all three were proven red by mutation before green (`F-9`'s rule, working).
+- **Sightings:** As the family, 5.
+- **Action:** soft — fixed in the task. The family settled at `F-45`/`F-48` that this
+  gets no CI control; the reviewer brief's mutation probes are the control, and they fired.
+- **Notes:** Two smaller things from the same task, logged here rather than as entries.
+  (1) The builder's first draft of the clean-repo acceptance test asserted the word
+  `unreadable` absent from all output — green before any code existed, the `F-11` shape.
+  The builder caught it itself before implementing and tightened it in a separate commit
+  with the reason in the message; the reviewer checked out the red SHA and confirmed the
+  original was vacuous and the replacement strictly stronger. Not `F-30`; the opposite.
+  (2) The reviewer flagged, and I agree, a pre-existing gap outside T-15: a scan that
+  completes with an empty queue prints no status line at all, so `unreadable=N` is
+  invisible on that path when the count is zero (non-zero still prints the naming line).
+  One sighting, out of scope, noted for the next scan-output task.
+  Harness cost note: the code reviewer ran the full suite once per mutation probe, five
+  times; the builder's fix round ran it eight more. Two changes landed the same day —
+  `pytest-xdist` (PR #18, ~60s → ~15s) and a line in the `orchestrate` briefs that probes
+  run the targeted test file and the suite once at the end.
+
+### Planning notes from T-15
+
+- The task-critic found two nits before the builder existed: a stale line cite for the
+  `except BaseException` block, and a real ambiguity — scope said "say nothing at zero"
+  while acceptance said a crash "still reports zero". The human ruled: the counter is
+  never silenced, only the file-naming line is; the task file was reworded before
+  dispatch. Under the `F-22` family (acceptance vs scope) this is one more sighting of
+  the shape the critic exists to catch, caught where it should be.
+
