@@ -16,6 +16,7 @@ seshat = "seshat.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.4.0",
+    "pytest-xdist>=3.8.0",
     "pyyaml>=6.0.0",
     "ruff>=0.15.0",
     "ty>=0.0.14",
@@ -91,7 +92,9 @@ empty-body = "ignore"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "governance/scripts", "controls/fitness"]
-addopts = "-ra --strict-markers --strict-config"
+# `-n auto` (pytest-xdist) cuts the suite from ~60s to ~15s; every agent in the
+# build loop runs it several times per task. Pass `-n 0` to run serially.
+addopts = "-ra --strict-markers --strict-config -n auto"
 xfail_strict = true
 markers = [
     "integration: needs LLM_HOST and a live model",
