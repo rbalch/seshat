@@ -373,6 +373,52 @@ def test_units_changed_is_empty_after_rescan_runs_to_completion(
     assert out.strip() == ''
 
 
+# -- T-15: units --changed includes unreadable alongside changed/vanished --
+
+
+def test_units_changed_includes_unreadable_alongside_changed_and_vanished(
+    scanned_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Mirrors tests/test_units.py's T-14 tests: rows are put into each status
+    directly through `Ledger.set_unit_status`, the same seam `sync_units`
+    itself writes through, rather than trying to engineer three different
+    kinds of drift out of one fixture edit.
+    """
+    with Ledger.open(scanned_repo) as ledger:
+        run_id = ledger.create_run().id
+        all_units = ledger.units()
+        assert len(all_units) >= 3
+        unreadable_unit, changed_unit, vanished_unit = all_units[0], all_units[1], all_units[2]
+        ledger.set_unit_status(unreadable_unit.id, 'unreadable', run_id)
+        ledger.set_unit_status(changed_unit.id, 'changed', run_id)
+        ledger.set_unit_status(vanished_unit.id, 'vanished', run_id)
+
+    capsys.readouterr()  # drain the scan's own output
+
+    exit_code = cli.main(['units', str(scanned_repo), '--changed'])
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    changed_names = {line.split('\t', 1)[0] for line in out.splitlines() if line.strip()}
+    assert unreadable_unit.qualified_name in changed_names
+    assert changed_unit.qualified_name in changed_names
+    assert vanished_unit.qualified_name in changed_names
+
+    # `units` with no flag is unchanged: still every unit, filter or not.
+    exit_code = cli.main(['units', str(scanned_repo)])
+    assert exit_code == 0
+    out_all = capsys.readouterr().out
+    all_names = {line.split('\t', 1)[0] for line in out_all.splitlines() if line.strip()}
+    assert {u.qualified_name for u in all_units} <= all_names
+
+
+def test_units_changed_flag_help_mentions_unreadable(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(['units', 'irrelevant', '--help'])
+    out = capsys.readouterr().out
+    assert 'unreadable' in out
+
+
 # -- bullet: claims OrderRepository.get shows each claim, its id, a citation -
 
 
