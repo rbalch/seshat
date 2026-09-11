@@ -55,7 +55,7 @@ feeds every finding into the ledger instead of letting it evaporate.
 
 ```
 /planner                       you + the planner, until the plan is agreed
-   └─▶ docs/specs/<slug>.md, tasks/<slug>/T-NN-*.md, docs/adr/ (only if alternatives were rejected)
+   └─▶ docs/specs/<slug>.md, tasks/<slug>/<PREFIX>-NN-*.md, docs/adr/ (only if alternatives were rejected)
 
 /orchestrate tasks/<slug>      ORCHESTRATOR (you, on develop, never in a worktree)
   │   ┌───────────────────────────── one task ─────────────────────────────┐

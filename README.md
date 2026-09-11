@@ -1,4 +1,4 @@
-# seshat
+# Seshat
 
 <img src="docs/images/seshat-logo.jpg" alt="Seshat" align="right" width="220">
 
@@ -13,9 +13,142 @@ claim carries its own check, a later run detects drift without rescanning the re
 The name is the Egyptian goddess of measurement and record keeping, who stretched the
 cord to survey a plot before anything was built on it.
 
-Read [`docs/specs/docs/plan.md`](docs/specs/docs/plan.md) for the phase-one design,
-[`decisions.md`](docs/specs/docs/decisions.md) for every settled question, and
-[`nooa-research.md`](docs/specs/docs/nooa-research.md) for the background.
+## Using Seshat
+
+### Install
+
+Seshat is a Python 3.13 package with one console script, `seshat`. It needs two things
+on `PATH`: `uv` and `codegraph` (`npm install -g @colbymchenry/codegraph`), which builds
+the code graph every scan reads.
+
+Inside the devcontainer both are already there, so:
+
+```bash
+uv sync                     # installs the package and its deps into .venv
+uv run seshat --help
+```
+
+Outside the container, from a clone of this repo:
+
+```bash
+uv tool install .           # puts `seshat` on your PATH
+# or, for a checkout you are editing:
+uv sync && source .venv/bin/activate
+```
+
+Every command that calls a model also needs `LLM_HOST` (see
+[Running against the Spark](#running-against-the-spark)). The read-only commands need
+nothing but the ledger.
+
+### Scan a repo
+
+```bash
+LLM_HOST=http://spark.local:8000 seshat scan /path/to/repo
+```
+
+Prefixing the variable each time gets old. Export it once per shell, or keep a `.env`
+and load it yourself — Seshat never reads a `.env` file on its own:
+
+```bash
+export LLM_HOST=http://spark.local:8000      # once per shell
+# or
+echo 'LLM_HOST=http://spark.local:8000' > .env
+set -a; source .env; set +a                  # then plain `seshat scan ...` works
+```
+
+`.env` files are gitignored here already.
+
+One scan does, in order: index the target with `codegraph init` (or `codegraph sync` if
+it is already indexed); open the ledger; seed the target's `README.md` and `docs/**/*.md`
+into working memory as *hypotheses*; enumerate every class, function, method and module
+as a **unit** and diff them against the last run; rerun the verifiers for anything that
+moved; then hand units to worker agents until a budget runs out. Each worker proposes
+claims about its unit, has a Python verifier written for each one, and runs it. After
+the pool drains, a reflection pass groups confirmed claims into concepts.
+
+Progress prints one line per unit:
+
+```
+[3/40] orders.OrderRepository.get +4 -1 tokens=18211 elapsed=41.2s
+```
+
+and the final line names the run and how it ended. `stopped_complete` means the queue
+drained; `stopped_budget` means a limit was hit first. Both exit 0. `failed` exits 1.
+
+Flags, all optional:
+
+| flag | default | meaning |
+|---|---|---|
+| `--units N` | 5 | stop after N units |
+| `--minutes M` | 10 | stop after M minutes |
+| `--tokens T` | 200000 | stop after T tokens |
+| `--workers W` | 1 | concurrent workers |
+| `--full` | off | rerun every verifier, not just the ones touching changed units |
+| `--no-thinking` | off | disable model thinking |
+| `--model NAME` | env | override the model for this run |
+
+The defaults are deliberately small. Scans are incremental, so re-running the same
+command grows the ledger; raise `--units` once you trust the output.
+
+### Read the ledger
+
+None of these touch a model. All take the repo path first.
+
+```bash
+seshat status  REPO                      # the last run: status, budgets, counts
+seshat units   REPO [--changed]          # every unit, with confirmed/refuted/stale counts
+seshat claims  REPO orders.OrderRepository.get   # one unit's claims, with ids and citations
+seshat concept REPO "connection pooling"         # a concept by id or search, with its evidence
+seshat drift   REPO                      # stale claims and concepts, grouped by unit
+```
+
+A claim line reads `[confirmed] <id> <text>  — <unit> <file>:<start>-<end> @<sha> [pass]`.
+`[STALE]` on the end means the code moved under it, or its verifier last failed. `drift`
+says "No drift." when the ledger is current.
+
+### Ask questions
+
+```bash
+LLM_HOST=... seshat ask REPO -q "What talks to the database?"
+LLM_HOST=... seshat ask REPO               # prompt loop; `exit` or Ctrl-D to leave
+```
+
+The answer agent reads only the ledger, never the source. Every sentence must cite a
+claim id; a sentence citing nothing, or an id the ledger does not know, is stripped
+before printing rather than shown as fact. An answer that loses every citation collapses
+to "Nothing in the ledger answers that."
+
+### What it writes
+
+Everything Seshat produces lands **inside the target repo**, in two directories:
+
+| path | what | keep? |
+|---|---|---|
+| `.seshat/ledger.db` | SQLite: runs, units, claims, verifiers, concepts, citations | yes — this is the product; it never decays |
+| `.seshat/memory.db` | working memory: seeded docs, hypotheses, dead ends | disposable; decays on its own |
+| `.codegraph/` | the tree-sitter code graph | build output; `codegraph sync` refreshes it |
+
+The first scan appends `.seshat/` to the target's `.gitignore`. `.codegraph/` is
+codegraph's own concern. Nothing is written outside the target, and nothing is written
+to this repo when you scan another one.
+
+Delete `.seshat/` to start over. Delete `.codegraph/` and the next scan re-indexes from
+scratch.
+
+### Configuration
+
+All by environment variable. Nothing reads a `.env` file.
+
+| variable | required | default |
+|---|---|---|
+| `LLM_HOST` | for `scan` and `ask` | — |
+| `SESHAT_MODEL` | no | `hosted_vllm/qwen3.8-27b` |
+| `SESHAT_MODEL_WORKER` | no | `SESHAT_MODEL` |
+| `SESHAT_MODEL_VERIFIER_AUTHOR` | no | `SESHAT_MODEL` |
+| `SESHAT_MODEL_REFLECTION` | no | `SESHAT_MODEL` |
+| `SESHAT_MODEL_ANSWER` | no | `SESHAT_MODEL` |
+
+`LLM_HOST` is the base URL of an OpenAI-compatible server; Seshat appends `/v1`.
 
 ## Development
 
