@@ -14,8 +14,10 @@ this file.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -24,7 +26,7 @@ import pytest
 import seshat.scan as scan_mod
 from seshat.config import Settings
 from seshat.graph import Graph
-from seshat.ledger.models import Claim, Verifier
+from seshat.ledger.models import Claim, Unit, Verifier
 from seshat.ledger.store import Ledger
 from seshat.scan import IndexFailed, Run, ScanOptions, run_scan
 from seshat.units import UnitReport
@@ -422,3 +424,196 @@ def test_index_failed_raised_on_nonzero_indexer_exit(repo: Path, settings: Setti
 
     with pytest.raises(IndexFailed):
         run_scan(repo, ScanOptions(), settings, worker_factory=SpyFactory(), indexer=failing_indexer)
+
+
+# -- T-15: report the unreadable count where a human will see it ------------
+#
+# Same bad-byte constant tests/test_units.py's T-14 tests use for "genuinely
+# unreadable" (the bad byte is in code, not a comment, so ast.parse raises
+# SyntaxError on it). `demo/__init__.py` is corrupted here rather than
+# `demo/repository.py` because it holds no class/function of its own -- one
+# module unit, one unreadable unit, so "the count is 1" is unambiguous
+# instead of module+class+method all going unreadable together.
+_GENUINELY_UNREADABLE_BYTES = b'co\xfbt = 1\n'
+
+
+def test_unreadable_file_is_named_and_counted(
+    repo: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (repo / 'demo' / '__init__.py').write_bytes(_GENUINELY_UNREADABLE_BYTES)
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+
+    run = run_scan(repo, options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    output = capsys.readouterr().out
+    naming_lines = [line for line in output.splitlines() if 'demo/__init__.py' in line]
+    assert len(naming_lines) == 1, f'expected exactly one line naming the unreadable file, got: {naming_lines!r}'
+
+    status_lines = [line for line in output.splitlines() if 'unreadable=' in line]
+    assert status_lines, 'expected at least one status line reporting the unreadable count'
+    assert all('unreadable=1' in line for line in status_lines)
+
+
+def test_clean_repo_prints_no_unreadable_naming_line(
+    repo: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Scope item 2's ruling: the silence-at-zero rule applies only to the
+    # file-naming line (item 3) -- the status line's own `unreadable=N`
+    # counter is never silenced, including at 0, so this asserts on the
+    # *naming* line's absence specifically, not on the word "unreadable"
+    # being absent from the whole run's output.
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+
+    run = run_scan(repo, options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    output = capsys.readouterr().out
+    naming_lines = [line for line in output.splitlines() if line.startswith('unreadable (')]
+    assert naming_lines == [], f'a clean repo must print no unreadable-naming line at all, got: {naming_lines!r}'
+
+    status_lines = [line for line in output.splitlines() if 'unreadable=' in line]
+    assert status_lines, 'expected at least one status line reporting the (zero) unreadable count'
+    assert all('unreadable=0' in line for line in status_lines)
+
+
+def test_crash_before_sync_units_reports_zero_unreadable(
+    repo: Path, settings: Settings, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError('boom: crash before sync_units')
+
+    monkeypatch.setattr(scan_mod, 'seed_docs', boom)
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+
+    with pytest.raises(RuntimeError, match='boom: crash before sync_units'):
+        run_scan(repo, options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+
+    output = capsys.readouterr().out
+    failure_lines = [line for line in output.splitlines() if 'error=' in line]
+    assert len(failure_lines) == 1, f'expected exactly one failure status line, got: {failure_lines!r}'
+    assert 'unreadable=0' in failure_lines[0]
+
+
+# -- fix round 1: naming-line cap/remainder arithmetic, unresolved-id fallback
+
+# Follow-up findings on T-15: the `and N more` arithmetic in
+# `_unreadable_names_line` and the `ledger.unit(...) is None` fallback both
+# had no test of their own -- the three tests above only ever hit 1 unreadable
+# unit at a time, well under the cap, and never an id the ledger can't
+# resolve.
+
+
+def _module_only_indexed_repo(repo_dir: Path, file_names: list[str]) -> Path:
+    """A throwaway repo, indexed for real, with one module-only .py file per name.
+
+    Mirrors tests/test_units.py's `_indexed_repo`: module-only files (no
+    class or function) so each corrupted file below contributes exactly one
+    unreadable *unit*, keeping "N distinct unreadable files" and "N
+    unreadable units" the same number -- the cap/remainder test needs that to
+    hold, or "5 files -> and 2 more" would not follow from the file count.
+    """
+    for name in file_names:
+        target = repo_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f'{Path(name).stem}_marker = 1\n')
+    env = {**os.environ, 'CODEGRAPH_TELEMETRY': '0'}
+    result = subprocess.run(
+        ['codegraph', 'init', str(repo_dir)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return repo_dir
+
+
+def test_naming_line_caps_at_three_and_reports_and_n_more_through_run_scan(
+    tmp_path: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """5 distinct unreadable files: only the first 3 are named, `and 2 more`
+    covers the rest, and the leading count is the true total (5), not the
+    shown count (3) -- through `run_scan` itself, so the print path (not just
+    the helper function) is covered.
+    """
+    file_names = [f'demo/mod_{i}.py' for i in range(5)]
+    repo5 = _module_only_indexed_repo(tmp_path, file_names)
+    for name in file_names:
+        (repo5 / name).write_bytes(_GENUINELY_UNREADABLE_BYTES)
+
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+    run = run_scan(repo5, options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    output = capsys.readouterr().out
+    naming_lines = [line for line in output.splitlines() if line.startswith('unreadable (')]
+    assert len(naming_lines) == 1, f'expected exactly one naming line, got: {naming_lines!r}'
+    line = naming_lines[0]
+
+    assert line.endswith('and 2 more'), line
+    prefix, _, rest = line.partition(': ')
+    assert prefix == 'unreadable (5)', line
+    names_part = rest.rsplit(' and ', 1)[0]
+    shown_names = [n.strip() for n in names_part.split(',') if n.strip()]
+    assert len(shown_names) == 3, f'expected exactly 3 named files, got: {shown_names!r}'
+    for name in shown_names:
+        assert name in file_names
+
+
+def _unreadable_unit_row(unit_id: str, file_path: str, run_id: str) -> Unit:
+    return Unit(
+        id=unit_id,
+        repo_id='',
+        file_path=file_path,
+        qualified_name=file_path,
+        kind='module',
+        start_line=1,
+        end_line=1,
+        ast_hash=None,
+        inbound_calls=0,
+        first_seen_run=run_id,
+        last_seen_run=run_id,
+        last_scanned_run=run_id,
+        status='unreadable',
+    )
+
+
+def test_naming_line_boundary_at_exactly_the_cap_has_no_and_more_suffix(tmp_path: Path) -> None:
+    """Exactly 3 unreadable files (the cap itself): every one is named, and
+    there is no `and N more` suffix at all -- the boundary the off-by-one
+    arithmetic has to get right in both directions.
+    """
+    boundary_repo = tmp_path / 'boundary'
+    boundary_repo.mkdir()
+
+    with Ledger.open(boundary_repo) as ledger:
+        run_id = ledger.create_run().id
+        unit_ids = []
+        for i in range(3):
+            unit = _unreadable_unit_row(f'unit-{i}', f'demo/file_{i}.py', run_id)
+            ledger.upsert_unit(unit, run_id)
+            unit_ids.append(unit.id)
+
+        line = scan_mod._unreadable_names_line(ledger, unit_ids)
+
+    assert line is not None
+    assert line.startswith('unreadable (3):'), line
+    assert 'more' not in line, line
+    for i in range(3):
+        assert f'demo/file_{i}.py' in line
+
+
+def test_naming_line_unresolved_unit_id_falls_back_to_the_raw_id(tmp_path: Path) -> None:
+    """`ledger.unit(unit_id)` returning `None` (T-15 scope item 3's fallback,
+    scan.py:130-131) must still produce a usable line naming the raw id,
+    not crash and not silently drop the unresolved unit.
+    """
+    empty_repo = tmp_path / 'empty'
+    empty_repo.mkdir()
+
+    with Ledger.open(empty_repo) as ledger:
+        line = scan_mod._unreadable_names_line(ledger, ['no-such-unit-id'])
+
+    assert line is not None
+    assert 'no-such-unit-id' in line

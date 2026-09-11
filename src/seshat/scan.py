@@ -91,9 +91,52 @@ class _Stats:
 
 
 def _status_line(
-    done: int, queued: int, qualified_name: str, confirmed: int, refuted: int, tokens: int, elapsed: float
+    done: int,
+    queued: int,
+    qualified_name: str,
+    confirmed: int,
+    refuted: int,
+    tokens: int,
+    unreadable: int,
+    elapsed: float,
 ) -> str:
-    return f'[{done}/{queued}] {qualified_name} +{confirmed} -{refuted} tokens={tokens} elapsed={elapsed:.1f}s'
+    return (
+        f'[{done}/{queued}] {qualified_name} +{confirmed} -{refuted} '
+        f'tokens={tokens} unreadable={unreadable} elapsed={elapsed:.1f}s'
+    )
+
+
+# Cap on how many unreadable files one line names before falling back to "and
+# N more" -- three is enough to point a human at the worst-hit files without
+# turning a run over a large mixed-encoding repo into a wall of filenames
+# (T-15 scope item 3: a count alone says something is wrong, not where to
+# look, but a line of noise on every scan is how a count stops being read).
+_UNREADABLE_NAME_CAP = 3
+
+
+def _unreadable_names_line(ledger: Ledger, unreadable_unit_ids: list[str]) -> str | None:
+    """A line naming up to `_UNREADABLE_NAME_CAP` unreadable files, or `None` when there are none.
+
+    One file can produce more than one unreadable unit (its module, any
+    class, any function/method all fail `ast_hash` together), so this
+    resolves ids to `file_path` and de-duplicates before applying the cap --
+    a human wants to know which *files* to look at, not how many AST nodes
+    each one used to have.
+    """
+    if not unreadable_unit_ids:
+        return None
+    names: list[str] = []
+    for unit_id in unreadable_unit_ids:
+        unit = ledger.unit(unit_id)
+        name = unit.file_path if unit is not None else unit_id
+        if name not in names:
+            names.append(name)
+    shown = names[:_UNREADABLE_NAME_CAP]
+    remainder = len(names) - len(shown)
+    line = f'unreadable ({len(names)}): {", ".join(shown)}'
+    if remainder > 0:
+        line += f' and {remainder} more'
+    return line
 
 
 def run_scan(
@@ -137,8 +180,12 @@ def run_scan(
     # Declared before the try so the except block below always has real
     # counters to report, however early the failure happens — `queue` empty
     # and `stats` all-zero is then the honest answer, not a hardcoded one.
+    # `unreadable_count` follows the same rule (T-15): it stays 0 until
+    # `sync_units` actually reports one, so a crash before that point reports
+    # zero unreadable honestly rather than a stale or guessed count.
     queue: list = []
     stats = _Stats()
+    unreadable_count = 0
 
     try:
         # 3. seed docs into working memory
@@ -148,6 +195,10 @@ def run_scan(
         # 4. enumerate + sync units, rerun the verifiers that touch what moved
         units = enumerate_units(graph, repo)
         diff = sync_units(ledger, units, run.id)
+        unreadable_count = len(diff.unreadable)
+        naming_line = _unreadable_names_line(ledger, diff.unreadable)
+        if naming_line is not None:
+            print(naming_line)
         for verifier in verifiers_to_rerun(ledger, diff, full=options.full):
             verify_and_record(ledger, verifier, graph, run.id)
 
@@ -158,7 +209,9 @@ def run_scan(
         # by `_drive_pool`/`worker_loop` as each unit finishes, so it still
         # holds real, as-of-the-crash counters if a unit raises partway
         # through the pool run and this `except` catches it below.
-        final_status = _drive_pool(queue, options, worker_factory, ledger, graph, run, stats, started_at)
+        final_status = _drive_pool(
+            queue, options, worker_factory, ledger, graph, run, stats, started_at, unreadable_count
+        )
     except BaseException as exc:
         # Deliberately no `after_scan` call here: reflection (T-10) runs over
         # a completed scan's claims, and a run that crashed mid-pool has no
@@ -174,6 +227,7 @@ def run_scan(
                 stats.claims_confirmed,
                 stats.claims_refuted,
                 stats.tokens_used,
+                unreadable_count,
                 elapsed,
             )
             + f' error={exc}'
@@ -213,6 +267,7 @@ def _drive_pool(
     run: Run,
     stats: _Stats,
     started_at: float,
+    unreadable_count: int,
 ) -> str:
     """Run `options.workers` coroutines over `queue`, one `worker_factory()` per unit.
 
@@ -283,6 +338,7 @@ def _drive_pool(
                         len(report.claims_confirmed),
                         len(report.claims_refuted),
                         stats.tokens_used,
+                        unreadable_count,
                         elapsed,
                     )
                 )

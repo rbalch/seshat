@@ -125,7 +125,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     units_parser = subparsers.add_parser('units', help='list every unit in the ledger')
     units_parser.add_argument('repo')
-    units_parser.add_argument('--changed', action='store_true', help='only units with status changed|vanished')
+    units_parser.add_argument(
+        '--changed', action='store_true', help='only units with status changed|vanished|unreadable'
+    )
 
     claims_parser = subparsers.add_parser('claims', help="list one unit's claims")
     claims_parser.add_argument('repo')
@@ -225,7 +227,12 @@ def _claim_counts(ledger: Ledger, unit_id: str) -> tuple[int, int, int]:
 def _cmd_units(ledger: Ledger, changed_only: bool) -> int:
     units = ledger.units()
     if changed_only:
-        units = [u for u in units if u.status in ('changed', 'vanished')]
+        # T-14 gave a unit `status='unreadable'` when its source can no
+        # longer be read; a claim resting on it needs re-checking exactly
+        # like a `changed` or `vanished` one does (AGENTS.md: never a false
+        # "nothing found" -- dropping it here would go quiet about the row
+        # most likely to have rotted).
+        units = [u for u in units if u.status in ('changed', 'vanished', 'unreadable')]
     for unit in units:
         confirmed, refuted, stale = _claim_counts(ledger, unit.id)
         print(
