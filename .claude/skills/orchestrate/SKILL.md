@@ -74,7 +74,7 @@ Then confirm the starting state:
 - You are on `develop`, the tree is clean, and `make check` is green. Starting on a red
   gate means you cannot tell which failures a task caused.
 - Run `make tasks PLAN=tasks/<slug>`. Status is **derived from PR state**, never
-  stored in the task file: a merged `T-NN:` PR is `done`, an open one is `in_review`,
+  stored in the task file: a merged `<id>:` PR is `done`, an open one is `in_review`,
   all dependencies done is `ready`, anything else is `blocked`. Build only `ready`
   tasks. **A dependency that is still `in_review` means wait.** Do not build on an
   unmerged branch. Report it and stop at that task.
@@ -108,7 +108,7 @@ untracked, so it is not in any worktree; every agent reads it from the root), pl
   edited, then `uv sync`. Report the worktree path in the return; you need it for the
   reviewers.
 - **Acceptance tests first.** Turn every runnable acceptance criterion in the task into
-  a test, commit those tests alone as `test(T-NN): acceptance for <title>`, run the
+  a test, commit those tests alone as `test(<id>): acceptance for <title>`, run the
   suite, and record the failing output. Then implement. This commit is the red proof
   and the reviewer will check out that SHA.
 - **Environment facts**: everything happens in the worktree; `uv run` for every command;
@@ -116,7 +116,8 @@ untracked, so it is not in any worktree; every agent reads it from the root), pl
 - **Secret hygiene**: never print a token; run a `grep -rE 'token|secret|key'` sweep over
   changed files as a named verification, not a promise.
 - **Verification list**: the task's acceptance commands with expected results, and
-  `make check` exit 0.
+  `make check` exit 0. Red proofs and fix-round mutation checks run the targeted test
+  file; the full suite and `make check` run once at the end, not per step.
 - **Commit instructions**: small conventional commits, clean tree at the end. The
   history will be squashed by you, so commit freely.
 
@@ -183,6 +184,11 @@ interface contracts, failure direction (ambiguity fails closed, a false success 
 blocking), secrets in outputs, and regressions against earlier rounds; a verdict and a
 score out of 5.
 
+**Mutation probes run the targeted test file, not the suite.** A planted defect is
+proven by the test that should catch it: `uv run pytest tests/test_<x>.py -q`, then
+revert. The full suite and `make check` run once each, at the end. Five probes times a
+full suite was most of a reviewer's wall clock on T-15.
+
 **A boundary finding citing a `DEC-N` is blocking, always.** CI will fail on it regardless
 of what anyone scores it.
 
@@ -220,7 +226,7 @@ On approval, in the worktree, by you or by the builder under your instruction:
 
 1. `make check` green, tree clean.
 2. **Squash to one commit.** `git reset --soft $(git merge-base develop HEAD)` then one
-   commit. Subject `<type>(T-NN): <title>`. The body is **bullets, not prose, hard cap
+   commit. Subject `<type>(<id>): <title>`. The body is **bullets, not prose, hard cap
    15 lines**, in exactly this shape:
 
    ```
@@ -242,7 +248,7 @@ On approval, in the worktree, by you or by the builder under your instruction:
    untracked, so **the merged PR is the only permanent record of the brief**:
 
    ```
-   <details><summary>Task brief T-NN</summary>
+   <details><summary>Task brief <id></summary>
 
    (task file, verbatim, after any task-critic corrections)
 
@@ -251,8 +257,9 @@ On approval, in the worktree, by you or by the builder under your instruction:
    - **Base is `develop`**, unless this task `depends_on` a task whose PR is still open.
      Then the base is that task's branch, and the PR is stacked. GitHub retargets it to
      `develop` when the predecessor merges and its branch is deleted.
-   - Title `T-NN: <title>`. Link the spec.
-4. Back on `develop`: commit the ledger changes from step 5 as `chore(T-NN): triage`.
+   - Title `<id>: <title>`, the task's full id with its plan prefix (`T-03`, `CT-01`).
+     `make tasks` matches PRs on that prefix. Link the spec.
+4. Back on `develop`: commit the ledger changes from step 5 as `chore(<id>): triage`.
    Do not touch the task file; the open PR *is* its status.
 5. Remove nothing. The worktree stays until the PR merges, in case of review comments
    from the human.

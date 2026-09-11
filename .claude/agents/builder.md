@@ -50,7 +50,7 @@ Before any implementation:
    Test the behaviour at the task's boundary as the criterion states it, not the
    internals you plan to build. A criterion that cannot become a test is reported as
    such, not skipped silently.
-2. Commit the tests alone: `test(T-NN): acceptance for <title>`.
+2. Commit the tests alone: `test(<id>): acceptance for <title>`.
 3. Run the suite. Record the failing output and the commit SHA. **This is the proof the
    reviewer checks**: the tests exist and fail before the implementation does.
 4. Now implement, however you like, until they pass.

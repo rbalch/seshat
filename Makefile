@@ -94,9 +94,9 @@ check: ## The single gate: controls -> views --check -> governance -> tests
 	$(MAKE) test
 
 PLAN ?=
-tasks: ## Live task status for $(PLAN), derived from PR state (make tasks PLAN=tasks/<slug>)
+tasks: ## Task status derived from PR state (make tasks PLAN=tasks/<slug>; every plan if unset)
 	@uv run python scripts/task-status.py $(PLAN)
 
 FILE ?=
-task-symbols: ## Advisory symbol check for a task file (make task-symbols FILE=tasks/<slug>/T-NN-*.md)
+task-symbols: ## Advisory symbol check for a task file (make task-symbols FILE=tasks/<slug>/<id>-*.md)
 	@uv run python scripts/task-symbols.py $(FILE)

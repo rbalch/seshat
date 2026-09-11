@@ -12,11 +12,25 @@ derives it from PR state.
 
 ```
 tasks/
-└── <plan-slug>/
-    ├── T-01-<slug>.md
-    ├── T-02-<slug>.md
+├── <plan-slug>/
+│   ├── T-01-<slug>.md
+│   ├── T-02-<slug>.md
+│   └── ...
+└── <another-plan>/
+    ├── CT-01-<slug>.md          # each plan owns its own id prefix
     └── ...
 ```
+
+## Ids
+
+A task id is `<PREFIX>-NN`: an uppercase prefix, a dash, a zero-padded number. **Each
+plan owns one prefix and no two plans share one.** The first plan in a repo uses `T`;
+later plans pick a short prefix from their slug (`critic-tooling` → `CT`). The prefix is
+the only thing that ties a PR titled `CT-01: …` back to its plan, so `make tasks`
+refuses a plan whose files mix prefixes or whose prefix another plan already uses.
+
+The file name is `<id>-<slug>.md`, so a directory sorts in id order and a dependency
+always has a lower number than its dependents.
 
 ## File format
 
@@ -25,7 +39,7 @@ tasks/
 id: T-02
 plan: <plan-slug>                  # tasks/<plan-slug>/, matches docs/specs/<plan-slug>.md
 title: Add the repository layer for orders
-depends_on: [T-01]                 # ids that must be merged first; [] if none
+depends_on: [T-01]                 # ids that must be merged first; [] if none (inline or block list)
 files:                             # what this task expects to create or edit
   - src/seshat/orders/repository.py
   - tests/orders/test_repository.py
@@ -82,9 +96,13 @@ What the human looks at after merge, if anything, and what "correct" looks like.
   first and watches them fail. If a criterion turns out to encode a wrong assumption,
   that is a planning error to report, not a test to quietly rewrite.
 - **Status is derived, never stored.** `make tasks PLAN=tasks/<slug>` reads PR state:
-  a merged PR titled `T-NN: …` is `done`, an open one `in_review`, all dependencies
-  done `ready`, otherwise `blocked`. Nobody edits a task file to change its status.
-  Builders never edit task files at all.
+  a merged PR titled `<id>: …` is `done`, an open one `in_review`, all dependencies
+  done `ready`, otherwise `blocked`. `make tasks` with no `PLAN` reports every plan.
+  Nobody edits a task file to change its status. Builders never edit task files at all.
+- **`make tasks` is the format check.** It exits with a message, not a traceback, when
+  the plan directory is missing, has no task files, a file lacks `id`/`title`/
+  `depends_on`, an id is malformed, prefixes are mixed or shared, or `depends_on` names
+  an id the plan does not have. The planner runs it once after writing the files.
 - **Small enough for one review loop.** If a task needs more than roughly one day of
   human-equivalent work, or touches more than one architectural layer, the planner splits
   it.
