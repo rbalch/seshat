@@ -35,6 +35,7 @@ from seshat.graph import Graph, Node
 from seshat.ledger.models import Claim, Unit, Verifier
 from seshat.ledger.store import Ledger
 from seshat.memory import WorkingMemory
+from seshat.source import read_source_text
 from seshat.units import UnitReport
 from seshat.verify import verify_and_record
 
@@ -92,18 +93,22 @@ class _TokenMeter:
 def _read_span(repo_root: Path, node: Node) -> str:
     """The exact source lines `node` spans, or `''` if the file can't be read.
 
-    Fails closed toward "cannot read this unit" rather than raising: a
-    missing file is `OSError` (matches `seshat.units.ast_hash`'s own
-    failure direction); a file that exists but is not UTF-8 raises
-    `UnicodeDecodeError` from `read_text()` — this is a plain source-span
-    read for a prompt, not a hash whose correctness matters, so both cases
-    get the same empty-string fallback rather than crashing the worker's
-    whole turn over one unreadable file.
+    Reads through `seshat.source.read_source_text` (T-14) — the one shared
+    reader also used by `ast_hash` and `Graph.decorators` — rather than its
+    own `read_text()` call. Fails closed toward "cannot read this unit"
+    exactly as before: a missing file, or one `read_source_text` can't even
+    detect an encoding for, still returns `''` rather than crashing the
+    worker's whole turn over one unreadable file
+    (`test_read_span_fails_closed_on_a_non_utf8_source_file`). The
+    improvement is that a file with a *declared* encoding — even a
+    non-UTF-8 one — now decodes for real instead of always falling back to
+    `''`: a weaker brief (replacement characters, in the rarer undeclared
+    case) beats no brief at all, per AGENTS.md's failure direction.
     """
-    try:
-        lines = (repo_root / node.file_path).read_text().splitlines()
-    except (OSError, UnicodeDecodeError):
+    text = read_source_text(repo_root / node.file_path)
+    if text is None:
         return ''
+    lines = text.splitlines()
     return '\n'.join(lines[node.start_line - 1 : node.end_line])
 
 

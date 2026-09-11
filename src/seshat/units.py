@@ -34,6 +34,7 @@ from typing import cast
 from seshat.graph import Graph, Node
 from seshat.ledger.models import Unit, UnitKind, Verifier
 from seshat.ledger.store import Ledger
+from seshat.source import read_source_bytes
 
 # -- identity ----------------------------------------------------------------
 
@@ -67,24 +68,54 @@ def _find_symbol(
     return None
 
 
+# Sentinel returned by `ast_hash` when the source itself couldn't be read or
+# parsed (T-14) -- distinct from `None`, which still means "read and parsed
+# fine, but the symbol isn't in it" (vanished). A plain string constant, not
+# an Enum or a dataclass: `Unit.ast_hash` and the `units.ast_hash` DB column
+# are both already typed/declared as `str | None`, and neither `sync_units`
+# nor `upsert_unit` ever needs to see this value -- `sync_units` checks for it
+# and replaces it with `None` before any row is written, exactly like the
+# vanished path already does (see its docstring). Chosen over a real sha256
+# hex digest collision risk of zero: `hashlib.sha256(...).hexdigest()` is
+# always exactly 64 lowercase hex characters, and this sentinel is neither
+# 64 characters nor hex, so it can never be mistaken for a real hash.
+UNREADABLE = '\x00unreadable\x00'
+
+
 def ast_hash(repo: Path, node: Node) -> str | None:
     """Sha256 of the node's own AST, normalized so line numbers don't count.
 
-    `None` if the file is missing or the symbol can no longer be found in it —
-    both cases mean the same thing to a drift scan (the unit is gone) and both
-    must never be mistaken for "unchanged": see the module docstring and
-    AGENTS.md's failure direction.
+    Three outcomes, and the module docstring plus AGENTS.md's failure
+    direction is why none of them may be confused for another:
+
+    - a real hex digest -- the source was read and parsed and the symbol
+      was found.
+    - `None` -- the source was read and parsed fine, but the symbol is not
+      in it (a genuinely deleted class/function/method). This is
+      "vanished": nothing here anymore.
+    - `UNREADABLE` -- the source could not be read at all
+      (`read_source_bytes` returned `None`), or it was read but `ast.parse`
+      raised `SyntaxError` on the bytes that were actually read. This is
+      "unreadable": maybe there, can't currently tell -- never "unchanged",
+      and never confused with a real deletion, because an unreadable file
+      might become readable again (see `sync_units`).
+
+    Reads through `seshat.source.read_source_bytes` and hands `ast.parse`
+    raw bytes rather than a str decoded ahead of time: `ast.parse` honours a
+    file's own PEP 263 coding declaration when given bytes, so a valid
+    latin-1-declared file hashes correctly instead of being reported
+    unreadable just because `bytes.decode()` with a guessed encoding would
+    have failed.
     """
     source_path = repo / node.file_path
-    try:
-        source = source_path.read_text()
-    except OSError:
-        return None
+    raw = read_source_bytes(source_path)
+    if raw is None:
+        return UNREADABLE
 
     try:
-        tree = ast.parse(source)
+        tree = ast.parse(raw)
     except SyntaxError:
-        return None
+        return UNREADABLE
 
     target: ast.AST
     if node.kind == 'module':
@@ -145,6 +176,7 @@ class UnitDiff:
     unchanged: list[str]
     changed: list[str]
     vanished: list[str]
+    unreadable: list[str] = field(default_factory=list)
 
 
 def sync_units(ledger: Ledger, units: list[Unit], run_id: str) -> UnitDiff:
@@ -257,10 +289,49 @@ def sync_units(ledger: Ledger, units: list[Unit], run_id: str) -> UnitDiff:
     unchanged_ids: list[str] = []
     changed_ids: list[str] = []
     vanished_ids: list[str] = []
+    unreadable_ids: list[str] = []
 
     for unit in units:
         seen_ids.add(unit.id)
         prior = existing.get(unit.id)
+
+        if unit.ast_hash == UNREADABLE:
+            # Mirrors the two vanished sub-cases immediately below (same
+            # `prior is not None` / `prior is None` split, same reason for
+            # nulling `ast_hash` through `upsert_unit`), but with
+            # `status='unreadable'` and its own `diff.unreadable` bucket --
+            # T-14. The unit's file could not be read or parsed this run;
+            # its symbol may well still be there. Unlike a genuinely deleted
+            # symbol, this status must recover the moment the file becomes
+            # readable again, including on the very first sync that ever
+            # saw it: because this branch writes `ast_hash=None` here just
+            # like vanished does, the next sync's real hash always compares
+            # unequal to `None` and falls through to the ordinary
+            # prior/current comparison below, landing in `changed` --
+            # exactly the self-heal `test_transient_syntax_error_...`-style
+            # tests exercise for vanished, now available on first sight too.
+            if prior is not None:
+                lost = replace(
+                    unit,
+                    ast_hash=None,
+                    first_seen_run=prior.first_seen_run,
+                    last_seen_run=run_id,
+                    last_scanned_run=prior.last_scanned_run,
+                    status='unreadable',
+                )
+                ledger.upsert_unit(lost, run_id)
+            else:
+                stillborn = replace(
+                    unit,
+                    ast_hash=None,
+                    first_seen_run=run_id,
+                    last_seen_run=run_id,
+                    last_scanned_run=run_id,
+                    status='unreadable',
+                )
+                ledger.upsert_unit(stillborn, run_id)
+            unreadable_ids.append(unit.id)
+            continue
 
         if unit.ast_hash is None:
             if prior is not None:
@@ -343,11 +414,17 @@ def sync_units(ledger: Ledger, units: list[Unit], run_id: str) -> UnitDiff:
             ledger.upsert_unit(gone, run_id)
             vanished_ids.append(existing_id)
 
-    stale_targets = changed_ids + vanished_ids
+    stale_targets = changed_ids + vanished_ids + unreadable_ids
     if stale_targets:
         ledger.mark_stale_for_units(stale_targets, run_id)
 
-    return UnitDiff(new=new_ids, unchanged=unchanged_ids, changed=changed_ids, vanished=vanished_ids)
+    return UnitDiff(
+        new=new_ids,
+        unchanged=unchanged_ids,
+        changed=changed_ids,
+        vanished=vanished_ids,
+        unreadable=unreadable_ids,
+    )
 
 
 def verifiers_to_rerun(ledger: Ledger, diff: UnitDiff, full: bool = False) -> list[Verifier]:

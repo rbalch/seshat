@@ -37,6 +37,20 @@ jobs:
         # dependency set that was committed.
         run: uv sync --locked
 
+      - name: Install node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install codegraph
+        # Several tests (T-14: tests/test_units.py) index a throwaway repo with a real
+        # `codegraph init` rather than a committed fixture or a hand-built sqlite index,
+        # to prove enumerate_units survives what codegraph itself produces for an
+        # undecodable file — a hand-built index can't stand in for that. Pinned to the
+        # exact version this repo is developed against; an unpinned install would let a
+        # future release break CI at random.
+        run: npm install -g @colbymchenry/codegraph@1.6.0
+
       - name: Controls
         run: make controls
 

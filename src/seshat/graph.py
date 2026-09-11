@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
+from seshat.source import read_source_bytes
+
 
 class GraphNotIndexed(Exception):
     """Raised when `Graph.open` is given a repo with no `.codegraph/codegraph.db`."""
@@ -250,7 +252,17 @@ class Graph:
         if n is None:
             return []
         source_path = self.repo_root / n.file_path
-        tree = ast.parse(source_path.read_text())
+        raw = read_source_bytes(source_path)
+        if raw is None:
+            return []
+        try:
+            tree = ast.parse(raw)
+        except SyntaxError:
+            # Not every file codegraph indexes is Python it can actually
+            # parse -- T-14: a non-Python file, or a Python file whose
+            # source can't be decoded/parsed at all, degrades to "no
+            # decorators found" rather than crashing the caller.
+            return []
         defn = _find_def(tree.body, qn.split('.'))
         if defn is None:
             return []
