@@ -226,11 +226,12 @@ The integration test suite includes the smoke checks above plus the live
 `tests/agents/test_worker.py`):
 
 ```bash
-LLM_HOST=http://<spark-host>:<port> uv run pytest tests/integration -m integration
+LLM_HOST=http://<spark-host>:<port> uv run pytest -m integration
 ```
 
-Without `LLM_HOST` set, `uv run pytest tests/integration -q` collects the same tests and
-skips every one — always exit 0, never a silent zero-tests-collected pass.
+A plain `uv run pytest` deselects these tests, even with `LLM_HOST` set (compose loads
+`.env`), so the default suite never calls the model. With `-m integration` and no
+`LLM_HOST`, they collect and skip — exit 0, never a silent zero-tests-collected pass.
 
 **A failing smoke is not a bug in this script.** It is the finding plan §8 exists to
 produce: whether a 27B model on this hardware can reliably drive CodeAct's native

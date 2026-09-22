@@ -42,6 +42,9 @@ SCRIPT = ROOT / 'scripts' / 'smoke_codeact.py'
 def _env_without_llm_host() -> dict[str, str]:
     env = dict(os.environ)
     env.pop('LLM_HOST', None)
+    # litellm calls load_dotenv() on import unless LITELLM_MODE is not DEV, which
+    # would put LLM_HOST back from /app/.env.
+    env['LITELLM_MODE'] = 'PRODUCTION'
     for key in list(env):
         if key.startswith('SESHAT_MODEL'):
             env.pop(key, None)
