@@ -24,6 +24,8 @@ RUN apt update --yes --quiet && apt install --yes --quiet --no-install-recommend
     procps \
     gnupg \
     lsb-release \
+    sqlite3 \
+    sqlite3-doc \
     && rm -rf /var/lib/apt/lists/*
 
 # Fix locale (resolves VSCode remote terminal issues)
@@ -84,6 +86,7 @@ ENV PATH="/app/.venv/bin:/home/dev/.local/bin:$PATH"
 
 # Python, managed by uv rather than by the base image.
 RUN uv python install 3.13
+RUN uv tool install datasette
 
 # Credential homes. These are named volumes at run time (see compose.yaml), and Docker
 # seeds a named volume from the image *only while it is empty* — so the directories must
