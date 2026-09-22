@@ -15,25 +15,27 @@ you reviewed.
 
 ## Why this stage exists
 
-Planning defects are the most common finding in this repo (`docs/ledger-findings.md`:
-F-1, F-11, F-13, F-22, and T-03's "seven fields"). Every one was caught by a builder or
-reviewer after code existed, at the cost of a fix round or a stalled loop. Each would
-have taken a minute to catch by reading the task file against the tree it names.
+Planning defects were the most common finding in the project this harness came from:
+symbols the task named that did not exist, acceptance bullets that contradicted scope,
+criteria no fixture could make fail. Every one was caught by a builder or reviewer after
+code existed, at the cost of a fix round or a stalled loop. Each would have taken a
+minute to catch by reading the task file against the tree it names.
 
 ## What to check
 
 Read the task file in full, then `AGENTS.md`, then every file the task's `depends_on`
 tasks list in their `files:` blocks, plus the fixture under `tests/fixtures/`.
 
-### 1. Named symbols exist (F-1)
+### 1. Named symbols exist
 
 Every function, class, method, field, module, fixture, or CLI flag named anywhere in
 **Scope** or **Acceptance** must exist in one of: the fixture target, the files of a
-dependency task that `make tasks` reports `done`, or this task's own `files:` list (in which
+dependency task that `make tasks` reports `done` or `in_review` (read the latter on its PR
+branch: `git show <branch>:<path>`), or this task's own `files:` list (in which
 case it is being created, and that is fine). Grep for each one. A name that exists
 nowhere is a finding; say where you looked.
 
-### 2. Acceptance does not contradict Scope (F-22)
+### 2. Acceptance does not contradict Scope
 
 Read each acceptance bullet against the scope items it exercises. Ask: if the scope is
 implemented exactly as written, can this bullet be true? A criterion that requires
@@ -42,7 +44,7 @@ Quote both halves and say why they cannot both hold. Ambiguity that could be rea
 either way is a finding too — say which reading the builder is likely to take and what
 the other one would do.
 
-### 3. Every criterion is testable here (F-11)
+### 3. Every criterion is testable here
 
 Each acceptance bullet must be expressible as a test that can go **red** against the
 fixture and the code that will exist. Two ways this fails: the fixture cannot express the
@@ -50,12 +52,21 @@ failure the criterion is about, so a test would pass vacuously; or the criterion
 something no test can observe from outside (a model's judgement, a timing, a "feels
 right"). Name the bullet and say what a test would need that is not there.
 
-### 4. Footprint and dependencies
+### 4. Try it can be run
+
+Every command, flag, import or file named in **Try it** must exist once this task and
+its `depends_on` tasks have merged: in the tree, in a dependency's `files:`, or in this
+task's Scope. A step that needs a later task's code is a finding. So is a vague step
+("check it works") with no command or expected output. `None — <reason>` is allowed;
+`None` with no reason, or a missing section, is a finding.
+
+### 5. Footprint and dependencies
 
 `files:` is the expected footprint. If implementing the scope plainly requires touching a
 file outside it — an upstream model that must widen, a schema column that must change —
 say so now, so it is a declared change rather than a reported deviation. Confirm `make tasks`
-reports every `depends_on` task `done`; if one is `in_review`, say so, but that is the
+reports every `depends_on` task `done` or `in_review` (stacked); if one is `in_review`,
+read its files on that PR's branch, not on `develop`. Anything else is the
 orchestrator's gate, not yours.
 
 ## What you do not do

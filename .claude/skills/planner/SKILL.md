@@ -37,6 +37,12 @@ enough to break into tasks, and to surface what they have not said.
 - **Ask the questions that change the work.** Scope boundaries, what is explicitly out,
   the acceptance the human will actually check, which existing code this must match,
   what happens on failure. Do not ask what you can read from the tree.
+- **Ask what the human wants to inspect.** Every artifact the work produces — a
+  database, files on disk, outbound calls, logs, an in-memory model — and how they want
+  to look at it. Each one gets a way to look: a CLI command, a `make` target, a script,
+  or a Python snippet they can paste into a REPL. These are features, planned as tasks.
+- **Ask the demo order.** What does the human want to run first, second, third? That
+  order, not the layer order, is the task order.
 - **Push back once, with a reason, then defer.** If a choice looks wrong say so plainly
   in a sentence or two. If the human reaffirms, that is the decision.
 - **Name the alternatives when there are real ones.** If the plan picks between two or
@@ -58,7 +64,8 @@ The plan in prose, for a human to read and for tasks to link back to. Short. Sec
 - **Out of scope** — explicit.
 - **Decisions** — choices made in the conversation, each in one line, with the ADR id
   if one was written.
-- **Tasks** — the ordered list of task ids and titles, with the dependency edges.
+- **Tasks** — the ordered list of task ids and titles, with the dependency edges, and
+  for each one line: what the human can run or look at once it merges.
 - **Open questions** — anything deferred, and who owns it.
 
 ## 3. The tasks — `tasks/<slug>/<PREFIX>-NN-<slug>.md`
@@ -76,15 +83,45 @@ prefix, and the PR titles will too. Per task:
   boundary of the task, not internals. "Returns the order or raises `OrderNotFound`" is
   acceptance. "Uses a dataclass" is not.
 - **`depends_on` only for merge dependencies.** Ask: can this be built and tested with
-  the dependency's code absent? If yes, it is not a dependency. Dependent tasks wait for
-  the predecessor to merge; nothing builds on an unmerged branch.
+  the dependency's code absent? If yes, it is not a dependency. Dependent tasks stack:
+  they branch off the predecessor's branch, and their PR targets it.
 - **`files` honest and complete.** This is the only signal the human has for which
   tasks can run in separate sessions at once.
 - **`rules`** — the `DEC-N` ids that plausibly apply, so the builder reads those first.
-- **Sized for one review loop.** Split anything that spans architectural layers or that
-  a reviewer could not hold in one pass.
+- **Sized for one review loop.** Split anything a reviewer could not hold in one pass.
+  Crossing layers is fine; a slice usually does. Split by feature, not by layer.
 
 Order the ids so a dependency always has a lower number than its dependents.
+
+### Slice for the human, not the layers
+
+Every PR is a chunk the human can check out, run, and poke at. A plan that is twelve
+tasks of models, repositories and services before anything runs is the failure this
+section exists to prevent: the human merges blind and finds out at task twenty that
+none of it does what they meant.
+
+- **T-01 runs.** The first task is a skeleton the human can start: the CLI answers
+  `--help`, the server returns 200, `import {package_name}` works and one call does
+  something. No features, but proof the thing is alive and how to run it.
+- **Each later task adds one thing the human can try.** A new command, a new flag, a new
+  function they can call from a REPL, a new table they can query. Cut through layers to
+  get there: a thin slice across model, storage and CLI beats a complete storage layer.
+- **Make artifacts visible when they appear.** The task that first writes a database,
+  a file, or an outbound call also gives the human a way to see it, or the very next
+  task does. Nothing the human asked to inspect stays hidden for more than one task.
+- **Parallelise across features, not layers.** Once the skeleton merges, independent
+  commands or flags are independent tasks with disjoint `files`, each with its own
+  Try it. Run them side by side.
+- **Plumbing-only tasks are allowed, and flagged.** CI, a pure refactor, a migration
+  with nothing new to see. Its Try it says `None — <reason>` and the spec names it as
+  plumbing. If more than one task in a row is plumbing, re-cut the plan.
+- **Try it is concrete.** Exact commands or a paste-able Python snippet, run from a
+  fresh checkout of the branch, and what the human should see: the output shape, the
+  rows in the table, the file that appears. "Verify it works" is not a Try it.
+- **Try it is a contract, not a note.** The builder runs it red then green, the reviewer
+  re-runs it as a required check, the human runs it last. Write steps an agent can run
+  without judgement: no GUI clicks, no "looks right". Where a person must look, say what
+  to compare against.
 
 After writing the files run `make tasks PLAN=tasks/<slug>`. It validates the frontmatter,
 the prefix and the dependency edges, and shows every task `ready` or `blocked`. A
@@ -104,8 +141,9 @@ the rule of three like anything else. Do not seed a `DEC-N` from a plan.
 
 ## 5. Hand-off
 
-Report the spec path, the task ids with their dependency edges, which tasks can run in
-parallel with which, and the ADR path if any. Then the two ways to run it:
+Report the spec path, the task ids with their dependency edges and one line each of
+what the human can try after it merges, which tasks can run in parallel with which, and
+the ADR path if any. Then the two ways to run it:
 
 ```
 /orchestrate tasks/<slug>            # every task, in dependency order
@@ -114,5 +152,5 @@ parallel with which, and the ADR path if any. Then the two ways to run it:
 
 ---
 
-Plan in conversation, write on agreement, one task per review loop, acceptance at the
-boundary, an ADR only when something was actually decided.
+Plan in conversation, write on agreement, one runnable slice per task, acceptance at
+the boundary, an ADR only when something was actually decided.

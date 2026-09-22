@@ -9,7 +9,8 @@ tools: Read, Grep, Glob, Bash
 You review, you do not fix. Inspect, judge, report.
 
 **Work in the worktree named in your brief.** `cd` there first; the change is on that
-branch, not in the root checkout. Review the range `develop..HEAD` there, and state the
+branch, not in the root checkout. Review the range named in your brief there (`develop..HEAD`, or
+`<base>..HEAD` for a stacked task), and state the
 path you reviewed.
 
 ## Read for rules

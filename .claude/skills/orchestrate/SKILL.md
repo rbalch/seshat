@@ -75,49 +75,57 @@ Then confirm the starting state:
   gate means you cannot tell which failures a task caused.
 - Run `make tasks PLAN=tasks/<slug>`. Status is **derived from PR state**, never
   stored in the task file: a merged `<id>:` PR is `done`, an open one is `in_review`,
-  all dependencies done is `ready`, anything else is `blocked`. Build only `ready`
-  tasks. **A dependency that is still `in_review` means wait.** Do not build on an
-  unmerged branch. Report it and stop at that task.
+  every dependency done or in review is `ready`, anything else is `blocked`. Build only
+  `ready` tasks. **A ready task whose dependency is still `in_review` stacks:** its
+  branch starts from that dependency's branch, which `make tasks` names
+  (`stacks on T-02 (<branch>)`). The human comes back to a chain of PRs, each one
+  testable on top of the last.
 - No `ready` task already has a branch or worktree from another session. If one does,
   skip it and say so.
+- **Restack after merges.** For every open PR whose base PR has merged since the last
+  run, in its worktree: `git fetch && git rebase origin/develop` (git drops the
+  already-merged commit as patch-identical), re-run `make check`, force-push with lease,
+  and `gh pr edit --base develop` if GitHub did not retarget it. Otherwise the PR shows
+  its merged parent's diff as its own.
 
 Then, **for each task, before its builder exists**, dispatch `subagent_type: task-critic`,
 `model: sonnet`, in the root checkout — no worktree, it is read-only. Brief: the task file
 path, and that its report is findings or `CLEAN`. It checks that every symbol the task
 names exists, that no acceptance bullet contradicts the task's own scope, and that every
-bullet can be written as a test that goes red here. Five of the findings in
-`docs/ledger-findings.md` are task-file defects caught after code existed; this is the
-minute of reading that would have caught each one first.
+bullet can be written as a test that goes red here. Task-file defects caught after code
+exists cost a fix round each; this is the minute of reading that catches them first.
 
 - `CLEAN` → dispatch the builder.
 - Findings → **stop and take them to the human**, in the shape under *Talking to the
   human*. A task file changes only by their decision; apply it to the file (it is untracked, nothing to commit) and dispatch. You
-  do not fix the task file yourself; your own reading is the least-reviewed input in the loop (F-15).
+  do not fix the task file yourself; your own reading is the least-reviewed input in the loop.
 
 ## 1. Builder dispatch
 
 `Agent` tool, `subagent_type: builder`, **`isolation: "worktree"`**, `model: sonnet` by
 default. The worktree is created for you under `.claude/worktrees/` and branches from
-your current HEAD, which is why you stay on `develop`. Reuse the same builder via
+your current HEAD, which is why you stay on `develop`. For a stacked task, the brief
+names the base branch and the builder's first command is `git reset --hard <base>`,
+before `codegraph init`. Reuse the same builder via
 `SendMessage` for fix rounds; its context is warm and the worktree is already set up.
 
 The brief is the task file's **absolute path in the root checkout** (`tasks/` is
 untracked, so it is not in any worktree; every agent reads it from the root), plus:
 
-- **Worktree setup**: run `codegraph init` first so the graph reflects the tree being
-  edited, then `uv sync`. Report the worktree path in the return; you need it for the
+- **Worktree setup**: for a stacked task, `git reset --hard <base>` first. Then
+  `codegraph init` so the graph reflects the tree being edited, then `uv sync`. Report the worktree path in the return; you need it for the
   reviewers.
 - **Acceptance tests first.** Turn every runnable acceptance criterion in the task into
   a test, commit those tests alone as `test(<id>): acceptance for <title>`, run the
-  suite, and record the failing output. Then implement. This commit is the red proof
-  and the reviewer will check out that SHA.
+  suite, and record the failing output. Run the Try it steps and record that they fail
+  too. Then implement until both are green. This commit is the red proof and the
+  reviewer will check out that SHA.
 - **Environment facts**: everything happens in the worktree; `uv run` for every command;
   the task's `files` list is the expected footprint and anything beyond it is reported.
 - **Secret hygiene**: never print a token; run a `grep -rE 'token|secret|key'` sweep over
   changed files as a named verification, not a promise.
-- **Verification list**: the task's acceptance commands with expected results, and
-  `make check` exit 0. Red proofs and fix-round mutation checks run the targeted test
-  file; the full suite and `make check` run once at the end, not per step.
+- **Verification list**: the task's acceptance commands with expected results,
+  `make check` exit 0, and every Try it step producing what the task says.
 - **Commit instructions**: small conventional commits, clean tree at the end. The
   history will be squashed by you, so commit freely.
 
@@ -130,7 +138,8 @@ Three ledger-specific additions:
 
 Require a structured return: worktree path, branch name, the acceptance-test commit SHA
 and its failing output, subsequent commit SHAs, per-verification evidence (**output, not
-claims**), the `make check` exit code, deviations from the task with reasons,
+claims**), the `make check` exit code, the Try it transcripts (failing before, passing after, real
+output verbatim), deviations from the task with reasons,
 blocked-by-a-rule items, and files touched outside the task's `files` list.
 
 ### Model escalation
@@ -163,10 +172,9 @@ The reason is that reviewers verify by execution, which means planting a deliber
 defect and reverting it. Sharing one tree, each sees the other's plant and reports it as
 a real finding — or worse, correctly guesses it is the other reviewer's mess and
 dismisses it, which is a reviewer teaching itself to wave anomalies through. Two trees
-cost one command and some disk, and buy genuinely independent findings: on T-04 the two
-reviewers found two different real defects in the same file on the same round, and
-neither saw the other's experiments. `F-2` in `docs/ledger-findings.md` has the four
-sightings behind this.
+cost one command and some disk, and buy genuinely independent findings: in the project
+this harness came from, the two reviewers found two different real defects in the same
+file on the same round, and neither saw the other's experiments.
 
 - **`subagent_type: boundary-reviewer`, `model: sonnet`**, in its own detached checkout —
   every live rule in `RULES.md` against the diff, citing `DEC-N`, plus the seams declared
@@ -176,7 +184,10 @@ sightings behind this.
   owns `review.md` / `review.json` there; both are gitignored.
 
 Both briefs carry: that reviewer's own path, the task file's absolute root path, the
-acceptance-test commit SHA, and the range to review (`develop..HEAD`).
+acceptance-test commit SHA, and the range to review (`<base>..HEAD`, where `<base>` is
+`develop` or the stacked dependency's branch). The code
+reviewer's brief also carries the builder's Try it transcript. Try it is a required
+check for the reviewer, run from a clean state, like the red proof.
 
 Both briefs must demand: verify by execution, not by reading; findings with severity,
 `file:line`, and a concrete failure scenario for anything called a bug; attention to
@@ -184,22 +195,18 @@ interface contracts, failure direction (ambiguity fails closed, a false success 
 blocking), secrets in outputs, and regressions against earlier rounds; a verdict and a
 score out of 5.
 
-**Mutation probes run the targeted test file, not the suite.** A planted defect is
-proven by the test that should catch it: `uv run pytest tests/test_<x>.py -q`, then
-revert. The full suite and `make check` run once each, at the end. Five probes times a
-full suite was most of a reviewer's wall clock on T-15.
-
 **A boundary finding citing a `DEC-N` is blocking, always.** CI will fail on it regardless
 of what anyone scores it.
 
 ## 3. The loop — you in the middle
 
 ```
-while verdict != APPROVE or score < 4 or blocking/important findings remain:
+while verdict != APPROVE or score < 4 or blocking/important findings remain
+      or any Try it step fails:
     read both reports; for each finding decide: agree / disagree with evidence / needs human
     send the findings you agree with → builder (SendMessage), ONE numbered list,
         each with the required fix shape and how to re-verify
-    builder fixes and returns evidence
+    builder fixes and returns evidence, including a fresh Try it transcript
     reviewers re-review the DELTAS (git show <fix-shas>) in the worktree, re-run what
         they can, mark findings resolved with SHAs
 ```
@@ -225,8 +232,10 @@ while verdict != APPROVE or score < 4 or blocking/important findings remain:
 On approval, in the worktree, by you or by the builder under your instruction:
 
 1. `make check` green, tree clean.
-2. **Squash to one commit.** `git reset --soft $(git merge-base develop HEAD)` then one
-   commit. Subject `<type>(<id>): <title>`. The body is **bullets, not prose, hard cap
+2. **Squash to one commit.** `git reset --soft $(git merge-base <base> HEAD)` then one
+   commit, where `<base>` is `develop` or, for a stacked task, the dependency's branch.
+   Squashing against `develop` on a stacked branch folds the dependency's commit into
+   this one. Subject `<type>(<id>): <title>`. The body is **bullets, not prose, hard cap
    15 lines**, in exactly this shape:
 
    ```
@@ -237,14 +246,30 @@ On approval, in the worktree, by you or by the builder under your instruction:
    - up to 3 bullets, only for things a reader would not guess; omit the section if none
    Evidence: <N> tests in <file>, make check exit 0, red-then-green on <sha>
    Check by hand:
-   - anything the human should verify or decide
+   - only what Try it does not cover: a decision, a judgement call; omit if none
    ```
 
    The review rounds, the fix history, and the story of how a bug was found do not go
    here. That belongs in `docs/ledger-findings.md`, which already has it. If a bullet
    needs a paragraph, it is a ledger entry, not a PR bullet.
-3. Push the branch. Open the PR with `gh pr create`, body from the commit message, same
-   cap. Then append the whole task file inside a collapsed block — `tasks/` is
+3. Push the branch. Open the PR with `gh pr create`. The body **opens with Try it**,
+   since it is what the human does with the PR:
+
+   ````
+   ## Try it
+   git fetch && git checkout <branch> && uv sync
+   <each Try it step from the task>
+   <details><summary>Output from the builder's run</summary>
+
+   ```
+   <the builder's real transcript, verbatim>
+   ```
+   </details>
+   ````
+
+   If the task's Try it is `None — <reason>`, the section says so, reason included. Then
+   the commit message body, same cap. Then append the whole task file inside a collapsed
+   block — `tasks/` is
    untracked, so **the merged PR is the only permanent record of the brief**:
 
    ```
@@ -302,12 +327,23 @@ failure available here.
 ## 7. Next task, and exit
 
 Run `make tasks` again and move to the next `ready` task. A task that depends on one now
-`in_review` **waits**: report that the batch is blocked on the human merging the PR and
-stop. Do not stack a build on top of an unreviewed branch.
+`in_review` stacks on it, as in section 0; keep going until nothing is `ready`. Build
+the chain in id order so each branch exists before its dependents need it. A task is
+`blocked` only when a dependency is unbuilt or two in-review dependencies sit on
+separate branches; report those and stop.
+
+**If the human asks for changes on a PR mid-stack**, fix it in its worktree, then
+rebase each dependent in its own worktree, bottom-up (`git rebase --onto <new> <old>`
+there; git refuses to rebase a branch checked out in another worktree), re-run its gate
+and Try it, and force-push with lease. Never let a dependent PR carry a
+stale copy of its base.
 
 When the batch is finished or blocked, report, outcome first:
 
-- Per task: PR URL, verdict and score, the findings that mattered and their fixes.
+- Per task: PR URL, verdict and score, one line of what to try, the findings that
+  mattered and their fixes, and the base branch for stacked PRs.
+- The merge order: stacks bottom-up. Each PR is one commit, so rebase-merge or squash
+  both work; the next run restacks what is left (section 0).
 - Tasks blocked on a merge, and which PR unblocks them.
 - Any model escalations and why.
 - **Findings by bin, with running sighting counts.**
@@ -324,6 +360,7 @@ When the batch is finished or blocked, report, outcome first:
 - **Never hand-edit `governance/views/**` or `governance/registry.json`.**
 - Secrets never appear in briefs, outputs, commits, or PR bodies.
 - Human-gated steps are reported as gates, never simulated or skipped past.
-- Dependent tasks wait for a merge. No speculative stacking.
+- Dependent tasks stack on their dependency's branch, never on a guess: a base is an
+  open PR that passed review, and a dependent PR is rebased whenever its base changes.
 - You stay on `develop`. You never `EnterWorktree`; subagents get isolation, you get the
   view from above.

@@ -17,6 +17,7 @@ under `.claude/worktrees/`, on its own branch off `develop`. Two things are miss
 it and both are yours to fix before you start:
 
 ```bash
+git reset --hard <base>   # only if the brief names a base branch (a stacked task)
 pwd                 # record this; the orchestrator needs the path for the reviewers
 codegraph init      # the code graph is per-checkout; index the tree you are editing
 uv sync             # the venv is per-checkout too
@@ -53,7 +54,12 @@ Before any implementation:
 2. Commit the tests alone: `test(<id>): acceptance for <title>`.
 3. Run the suite. Record the failing output and the commit SHA. **This is the proof the
    reviewer checks**: the tests exist and fail before the implementation does.
-4. Now implement, however you like, until they pass.
+4. Run the task's **Try it** steps too, and record that they fail (command not found,
+   import error, empty table). Try it is the other half of the contract: the tests prove
+   the boundary, Try it proves the thing a person runs.
+5. Now implement, however you like, until the tests pass **and** every Try it step
+   produces what the task says it should. Run Try it as you go; it is the fastest way to
+   see whether what you built is what was asked for.
 
 Unit tests below the boundary are yours to add or not as the code warrants; they are not
 part of the red proof.
@@ -106,6 +112,14 @@ re-record the hash yourself. Report it: name the change you made and let the
 orchestrator decide whether the decision still holds. A hash bumped without a human
 reading the diff turns that control into ceremony.
 
+## Run the Try it — the final check
+
+After `make check` is green, run every step in the task's **Try it** section again, from
+a clean state (`uv sync`, fresh data directory), exactly as written. Try it is the
+agreement between you, the reviewer and the human about what this task built: green
+tests with a failing Try it is **not done**. Capture the real output, verbatim. If a
+step cannot run as written, report it as a planning finding; do not rewrite the step.
+
 ## Report back
 
 Structured, and evidence rather than claims:
@@ -115,6 +129,8 @@ Structured, and evidence rather than claims:
 - Subsequent commit SHAs and messages.
 - Per-item verification: the exact command run and its actual output.
 - `make check` exit code, stated explicitly.
+- **Try it transcript**: each command as run and its real output, verbatim — both the
+  failing run before implementation and the final passing run.
 - Deviations from the brief, with reasons.
 - **Anything you were blocked on by a rule**, stated as: the rule, what you wanted to
   do, why you think the rule is wrong or right. This is high-value signal for the

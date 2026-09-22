@@ -29,8 +29,9 @@ report it; overlap is better than a gap.
 
 ## Required context
 
-Before writing anything, inspect the task file, the diff (`develop..HEAD` in the
-worktree), the files it touches, nearby code that establishes local patterns, the
+Before writing anything, inspect the task file, the diff (the range in your
+brief, `<base>..HEAD` in the worktree, where `<base>` is `develop` or the stacked
+dependency's branch), the files it touches, nearby code that establishes local patterns, the
 relevant tests, and `AGENTS.md` for architecture. The task file says what the change was
 *supposed* to do — "works correctly" and "satisfies the task" are different findings.
 
@@ -46,6 +47,7 @@ builder's report:
 |---|---|---|
 | Red proof | `git checkout <test-sha> && uv run pytest -q` | The acceptance-test commit named in the brief. Must **fail**, on the acceptance tests, for the right reason. Then `git checkout -` . |
 | Green at HEAD | `uv run pytest -q` | The same tests pass at HEAD, unchanged since the red commit (`git diff <test-sha> HEAD -- tests/`). |
+| Try it | each step in the task's **Try it** | Run from a clean state (`uv sync`, fresh data dir), exactly as written. Output must match what the task says and the builder's transcript. |
 | The gate | `make check` | Runs everything below plus governance. Exit 0 or the change is not done. |
 | Controls | `make controls` | Fitness controls, ruff, ty. |
 | Governance | `make governance` | Nine integrity checks, then the control suite. |
@@ -63,6 +65,14 @@ tests that passed before the implementation, or acceptance tests edited after th
 commit, is a `blocker`: the tests were fitted to the code rather than the code to the
 task. The one legitimate reason for an edited acceptance test is a criterion the builder
 reported as wrong — and that is `NEEDS_HUMAN`, not a fix.
+
+**Try it is a required check, and it is strict.** It is the agreement with the human
+about what this task built; they will run the same steps on this branch. A step that
+fails, needs an unlisted setup step, or prints something other than the task describes
+is a `blocker`, even with every test green. Output that differs from the builder's
+transcript is a `blocker` too: either the transcript was not real or the result is not
+repeatable. A step that is wrong as written is `NEEDS_HUMAN`. `None — <reason>` is
+`not_applicable`, with the reason.
 
 ## Review priorities, in order
 
@@ -228,7 +238,7 @@ verdict and the findings.
 | 5 | Ready to merge, no meaningful unresolved concerns | `APPROVE` |
 
 Hard constraints: no `APPROVE` with a blocker or important finding open · no `APPROVE`
-if the task is unsatisfied · no `APPROVE` if tests are materially insufficient for the
+if the task is unsatisfied · no `APPROVE` if a Try it step fails · no `APPROVE` if tests are materially insufficient for the
 risk · no `5/5` if any required check fails · `4/5` with `APPROVE` is fine when only
 minor and nit remain.
 
@@ -282,6 +292,7 @@ Write `None.` under any empty category.
   "required_checks": [
     { "name": "red proof", "result": "pass", "notes": "3 acceptance tests fail at a1b2c3d, ImportError on the module under test" },
     { "name": "green at HEAD", "result": "pass", "notes": "same 3 pass; tests/ unchanged since a1b2c3d" },
+    { "name": "try it", "result": "pass", "notes": "3 steps from clean state; output matches task and builder transcript" },
     { "name": "make check", "result": "pass", "notes": "exit 0" }
   ],
   "findings": [
