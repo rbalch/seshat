@@ -2242,3 +2242,77 @@ recorded here so they are not rediscovered later.
   dispatch. Under the `F-22` family (acceptance vs scope) this is one more sighting of
   the shape the critic exists to catch, caught where it should be.
 
+
+### F-62 — a recursive delete followed a symlinked root out of the repo
+
+- **Date:** 2026-09-22
+- **Task:** PT-01
+- **Bin:** 2
+- **Claim:** `clear_seshat_dir` checked `exists()` and walked `rglob` on `<repo>/.seshat`.
+  When `.seshat` was itself a symlink, both followed it, and the walk deleted every file
+  in the target directory before `rmdir()` failed on the link. Checkable form: a function
+  that deletes a tree must test `is_symlink()` on the root before `exists()` or any walk,
+  and must `rmdir()` only `is_dir() and not is_symlink()` entries.
+- **Sightings:** 1. There is one recursive delete in the repo, so the pattern cannot recur
+  yet; a second delete path would be the test.
+- **Action:** soft — fixed in PR #22 with three regression tests (symlinked root, dangling
+  root, symlinked subdirectory), each proven red first.
+- **Notes:** Found by the boundary reviewer, and independently by the orchestrator reading
+  the diff. The brief named "a `.seshat` that is itself a symlink" as a case to try. That
+  is `F-46`'s lesson (enumerate what a symlink can point at, not which way it escapes)
+  applied up front, and it fired. Same task, Bin 3: a partial delete crashed with a raw
+  traceback. It failed safe, never reporting `cleared`; it now exits 1 with the paths
+  already removed.
+
+### F-63 — harness: a test-first commit orphaned an assertion from its neighbour, and the report said "no deviations"
+
+- **Date:** 2026-09-22
+- **Task:** PT-01
+- **Bin:** unbinned harness finding
+- **Claim:** The builder appended acceptance tests with an edit anchor that matched the
+  tail of an existing test. The last assertion of
+  `test_naming_line_unresolved_unit_id_falls_back_to_the_raw_id` ended up dangling in a
+  new test, referencing an undefined name. The new test was already red for the missing
+  feature, which hid the break. The builder's return said "Deviations: None".
+- **Sightings:** 1.
+- **Action:** soft — restored in the fix round, line-for-line identical to `develop`.
+- **Notes:** The code reviewer caught it with `git diff <red-sha> HEAD -- tests/`, and
+  that one command is the whole control: any `-` line containing `assert` in an unrelated
+  test is a finding. Worth adding to the reviewer brief if it recurs. The reviewer first
+  called it "silently weakening coverage". The mechanism was a bad edit, not a choice,
+  which matters for which family a second sighting joins. The false "no deviations" met
+  the brief's escalation trigger (builder evidence false on re-verification). I did not
+  escalate, because the fix round landed cleanly on Sonnet. Recording that call here.
+
+### F-64 — review-round citations written into code comments
+
+- **Date:** 2026-09-22
+- **Task:** PT-01
+- **Bin:** 2
+- **Claim:** Fix-round commits added docstrings citing "PT-01 fix round 1, finding 4".
+  The PR is squashed, so those references point at nothing. Task ids (`T-15`, `PT-01`) are
+  house style and fine; round and finding numbers are not. Checkable:
+  `git grep -nE 'fix round|finding [0-9]' -- src tests` is empty on `develop` today.
+- **Sightings:** 1.
+- **Action:** soft — removed before squash, comment-only commit verified.
+- **Notes:** A grep control would be trivial and nearly free of false positives. Still,
+  it is one sighting, and the rule of three applies.
+
+### Planning notes from the seshat-phase-two batch
+
+- Critic stops: PT-01 clean. PT-02 had two blockers. It cited `set_unit_status` as the
+  precedent `sync_units` follows, while `sync_units`' docstring forbids exactly that call,
+  and it asked for exit 2 without saying how an error reaches the CLI's exit code. PT-03
+  had one blocker and one overpromise. Its Manual QA used PT-02's `--file` while declaring
+  no dependency, and "no claim is written" is false for the real worker, which saves a
+  conjectured claim before its first await. The human ruled on all four; the task files
+  were changed before dispatch. Under the `F-22` family this counts **one** sighting for
+  the batch, not four: one plan, one author, one sitting.
+- Orchestrator slip: `make tasks` showed all three tasks `ready` and I announced three
+  parallel PRs. `tasks/README.md` says overlapping `files` run in order, and the PT-01
+  critic pointed at it. `make tasks` does not check file overlap, so a "ready" task can
+  still be one that must wait. One sighting; a `make tasks` warning for overlapping
+  `files` among ready tasks would close it.
+- Live re-observation of `F-58`, not a new sighting: during PT-01's Manual QA a real
+  `seshat scan /tmp/t --units 1` against the Spark ran past 180s and was killed. `--units`
+  and `--minutes` are checked only between units. PT-03 exists for this.
