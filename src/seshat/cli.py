@@ -40,7 +40,7 @@ from seshat.graph import Graph
 from seshat.ledger.models import Citation, Claim, Concept
 from seshat.ledger.store import Ledger
 from seshat.render import format_citation
-from seshat.scan import IndexFailed, ScanOptions, run_scan
+from seshat.scan import ClearFailed, IndexFailed, ScanOptions, clear_seshat_dir, print_clear_result, run_scan
 from seshat.scan import _default_indexer as indexer
 
 __all__ = ['answer_agent_factory', 'build_parser', 'indexer', 'main', 'reflect_after_scan', 'worker_factory']
@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog='seshat',
         description='seshat: a ledger of verified claims about a codebase.',
     )
-    subparsers = parser.add_subparsers(dest='command', metavar='{scan,status,units,claims,concept,drift,ask}')
+    subparsers = parser.add_subparsers(dest='command', metavar='{scan,clear,status,units,claims,concept,drift,ask}')
 
     scan_parser = subparsers.add_parser('scan', help='scan a repo and grow its ledger')
     scan_parser.add_argument('repo')
@@ -119,6 +119,16 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument('--no-thinking', action='store_true')
     scan_parser.add_argument('--full', action='store_true')
     scan_parser.add_argument('--model', default=None)
+    scan_parser.add_argument(
+        '--clear', action='store_true', help='wipe <repo>/.seshat/ before indexing, same as seshat clear'
+    )
+
+    clear_parser = subparsers.add_parser(
+        'clear',
+        help='remove <repo>/.seshat/ (the ledger and working memory) and start fresh',
+        description='Remove <repo>/.seshat/ (the ledger and working memory) and start fresh. Leaves <repo>/.codegraph/ alone.',
+    )
+    clear_parser.add_argument('repo')
 
     status_parser = subparsers.add_parser('status', help="print the repo's last run")
     status_parser.add_argument('repo')
@@ -168,6 +178,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         thinking=not args.no_thinking,
         full=args.full,
         model=args.model,
+        clear=args.clear,
     )
 
     factory = worker_factory(repo, settings)
@@ -187,6 +198,31 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         f'confirmed={run.claims_confirmed} refuted={run.claims_refuted} tokens={run.tokens_used}'
     )
     return 0 if run.status.startswith('stopped_') else 1
+
+
+def _cmd_clear(repo: Path) -> int:
+    """`seshat clear`: wipe `<repo>/.seshat/`, print each removed path, then a summary line.
+
+    Must not require the ledger to exist -- unlike the read-only commands
+    below, `clear` is exactly the tool for a repo whose `.seshat/` is
+    missing, empty, or half-written, so `main` dispatches this before the
+    `ledger.db`-must-exist guard.
+
+    A partial failure (e.g. a permission error partway through) is reported
+    honestly: whatever was already removed is printed, then the error on
+    stderr, exit 1 -- never `cleared ...`, which would be a lie about a
+    `.seshat/` that is still (partly) there (PT-01).
+    """
+    seshat_dir = repo / '.seshat'
+    try:
+        removed = clear_seshat_dir(repo)
+    except ClearFailed as exc:
+        for path in exc.removed:
+            print(path)
+        print(f'clear failed: {exc}', file=sys.stderr)
+        return 1
+    print_clear_result(seshat_dir, removed)
+    return 0
 
 
 # -- read-only commands ---------------------------------------------------
@@ -371,6 +407,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == 'scan':
         return _cmd_scan(args)
+
+    if args.command == 'clear':
+        return _cmd_clear(Path(args.repo))
 
     repo = Path(args.repo)
     db_path = _ledger_db_path(repo)

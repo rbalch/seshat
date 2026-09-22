@@ -31,7 +31,7 @@ from seshat.memory import open_working_memory, seed_docs
 from seshat.units import build_queue, enumerate_units, sync_units, verifiers_to_rerun
 from seshat.verify import verify_and_record
 
-__all__ = ['IndexFailed', 'Run', 'ScanOptions', 'run_scan']
+__all__ = ['ClearFailed', 'IndexFailed', 'Run', 'ScanOptions', 'clear_seshat_dir', 'print_clear_result', 'run_scan']
 
 
 class IndexFailed(Exception):
@@ -54,6 +54,100 @@ class ScanOptions:
     thinking: bool = True
     full: bool = False
     model: str | None = None
+    clear: bool = False
+
+
+class ClearFailed(OSError):
+    """`clear_seshat_dir` hit an `OSError` partway through.
+
+    Carries `removed`: every path it *did* manage to remove before the
+    failure, so a caller (the CLI) can report real partial progress instead
+    of either a raw traceback or a false "cleared" (PT-01).
+    """
+
+    def __init__(self, removed: list[Path], cause: OSError) -> None:
+        super().__init__(str(cause))
+        self.removed = removed
+
+
+def clear_seshat_dir(repo: Path) -> list[Path]:
+    """Remove `<repo>/.seshat/` recursively; return every path removed.
+
+    Files first, then the directory itself, so a caller printing one line
+    per returned path reads like an `rm -rv`. Returns `[]` when the
+    directory does not exist. Never touches `<repo>/.codegraph/` or
+    anything else -- this walks and deletes exactly the one directory tree,
+    not a hardcoded list of known file names, so a stray `-wal`/`-shm` side
+    file cannot survive it (PT-01 Context).
+
+    Two hazards a naive `shutil.rmtree`-shaped walk gets wrong, both handled
+    here:
+
+    - `<repo>/.seshat` can itself be a symlink (or a dangling one -- a
+      symlink whose target no longer exists, which `Path.exists()` reports
+      as `False`). Checked with `is_symlink()` *before* `exists()`, and
+      removed with `unlink()` on the link itself -- never followed, never
+      walked into.
+    - An entry *inside* `.seshat/` can be a symlink to a directory.
+      `Path.is_dir()` follows symlinks and would report `True`, but
+      `rmdir()` on a symlink raises `NotADirectoryError`, and walking into
+      it to empty it first would delete the *target* directory's contents,
+      which can be anywhere on disk. Every symlink is removed with
+      `unlink()`; `rmdir()` is used only for a real (non-symlink) directory.
+
+    Raises `ClearFailed` (an `OSError`) if any single removal fails --
+    `.removed` on the exception holds whatever had already been removed.
+    """
+    seshat_dir = Path(repo) / '.seshat'
+
+    if seshat_dir.is_symlink():
+        try:
+            seshat_dir.unlink()
+        except OSError as exc:
+            raise ClearFailed([], exc) from exc
+        return [seshat_dir]
+
+    if not seshat_dir.exists():
+        return []
+
+    removed: list[Path] = []
+    entries = sorted(seshat_dir.rglob('*'), key=lambda p: len(p.parts), reverse=True)
+    try:
+        for path in entries:
+            if path.is_dir() and not path.is_symlink():
+                path.rmdir()
+            else:
+                path.unlink()
+            removed.append(path)
+        seshat_dir.rmdir()
+        removed.append(seshat_dir)
+    except OSError as exc:
+        raise ClearFailed(removed, exc) from exc
+    return removed
+
+
+def _print_removed_paths(removed: list[Path]) -> None:
+    """One removed path per line -- the half of `print_clear_result` a caller
+    still wants after a `ClearFailed`: real partial progress, with no
+    summary line implying the clear finished.
+    """
+    for path in removed:
+        print(path)
+
+
+def print_clear_result(seshat_dir: Path, removed: list[Path]) -> None:
+    """Print one removed path per line, then the shared summary line.
+
+    The one place `seshat clear` (`cli._cmd_clear`) and `seshat scan
+    --clear` (`run_scan`, below) agree on what a clear looks like on
+    stdout -- `cleared <dir>` when something was removed, `nothing to
+    clear at <dir>` otherwise (PT-01).
+    """
+    _print_removed_paths(removed)
+    if removed:
+        print(f'cleared {seshat_dir}')
+    else:
+        print(f'nothing to clear at {seshat_dir}')
 
 
 def _default_indexer(repo: Path) -> None:
@@ -157,6 +251,19 @@ def run_scan(
     """
     repo = Path(repo).resolve()
     started_at = time.monotonic()
+
+    if options.clear:
+        try:
+            print_clear_result(repo / '.seshat', clear_seshat_dir(repo))
+        except ClearFailed as exc:
+            # Same partial-progress reporting `seshat clear` gives: whatever
+            # was actually removed before the failure is printed, with no
+            # `cleared` line -- then this re-raises so `_cmd_scan`'s
+            # existing generic exception handler still reports
+            # `scan failed: ...` and exits 1. Indexing (step 1, right
+            # below) is never reached.
+            _print_removed_paths(exc.removed)
+            raise
 
     # 1. index
     indexer(repo)
