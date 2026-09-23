@@ -2425,11 +2425,17 @@ recorded here so they are not rediscovered later.
 - **Claim:** Fix-round commits added docstrings citing "PT-01 fix round 1, finding 4".
   The PR is squashed, so those references point at nothing. Task ids (`T-15`, `PT-01`) are
   house style and fine; round and finding numbers are not. Checkable:
-  `git grep -nE 'fix round|finding [0-9]' -- src tests` is empty on `develop` today.
-- **Sightings:** 1.
-- **Action:** soft — removed before squash, comment-only commit verified.
-- **Notes:** A grep control would be trivial and nearly free of false positives. Still,
-  it is one sighting, and the rule of three applies.
+  `git grep -nE 'fix round|finding [0-9]' -- src tests`.
+- **Sightings:** **3+, graduated.** PT-01, then PT-02, where the builder did it again
+  although the brief said not to. PT-02's builder also found an older one on `develop`,
+  and a search turned up seven, across six test files from at least four earlier tasks
+  (`tests/test_verify.py` x3, `tests/ledger/test_store_fixes.py`,
+  `tests/agents/test_verifier_author.py`, `tests/agents/test_worker.py`,
+  `tests/test_scan.py`). Nobody logged them because nobody searched for them.
+- **Action:** removed from both PRs before squash. Dispatched `control-author`.
+- **Notes:** Correction: this entry first said the grep was empty on `develop`. I had
+  searched `src` only. A brief instruction did not hold across two builders in one batch,
+  which is the soft layer failing on a rule a machine can check.
 
 ### Planning notes from the seshat-phase-two batch
 
@@ -2449,3 +2455,44 @@ recorded here so they are not rediscovered later.
 - Live re-observation of `F-58`, not a new sighting: during PT-01's Manual QA a real
   `seshat scan /tmp/t --units 1` against the Spark ran past 180s and was killed. `--units`
   and `--minutes` are checked only between units. PT-03 exists for this.
+
+### F-65 — a failed scan wrote to the ledger before it failed
+
+- **Date:** 2026-09-23
+- **Task:** PT-02
+- **Bin:** 2
+- **Claim:** `run_scan` flipped every named file's units to `changed` and marked their
+  claims stale, then checked whether every `--file` matched. With one good and one bad
+  path, the run exited 2 and closed `failed`, but the good file's confirmed claims were
+  already stale. Each ledger write commits alone, so nothing rolled back. Checkable form:
+  in `run_scan`, every input check that can raise comes before the first ledger write.
+- **Sightings:** 1.
+- **Action:** soft — fixed in PR #23 by reordering, with a regression test proven red
+  on the old code.
+- **Notes:** The code reviewer found it live and the orchestrator found it by reading. The
+  boundary reviewer saw the partial flip and called it taste, because nothing rolls back
+  elsewhere either. That is wrong for a run that reports failure: `failed` has to mean
+  nothing changed, or the ledger lies about why a unit is stale. Related shape, not a
+  second sighting: PT-01's partial delete also leaves progress on failure, but reports it
+  path by path, which is its contract.
+
+### Planning notes from PT-02
+
+- The mutation family (`F-45`/`F-48`/`F-53`), sixth sighting, still with no control, as
+  settled. The task named the required write path (`upsert_unit`, not `set_unit_status`).
+  The acceptance tests checked only the end state after a full run, where the worker's
+  own write hides the difference. The boundary reviewer swapped in the forbidden call
+  and all 82 tests passed. A test that stops before the worker runs now pins it; proven
+  red by the same swap. When a task says "use X, not Y", the acceptance test has to
+  check a state where X and Y differ.
+- An unreproduced flake: `test_clear_seshat_dir_removes_files_then_directory_and_returns_paths`
+  failed once in a boundary reviewer's parallel run, next to a planted defect, then
+  passed alone. I got 46 passes (40 alone, 6 full parallel suites). The likely cause is
+  that the test leaves the working-memory store open, so Python can close it mid-walk and
+  delete a `-wal` file already listed. Unproven, and no action. If it recurs, have the
+  delete ignore files already gone and close the store in the test.
+- Harness cost: those 46 runs spun up the human's fans enough for them to ask. Chasing a
+  flake by brute force needs a cap. One gate run per landing, and loops only with a
+  stated count.
+- The builder chose to report every unmatched `--file` at once, which the task did not
+  specify. Reviewed and accepted.
