@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -512,3 +513,173 @@ def test_unknown_repo_path_exits_two_with_hint(tmp_path: Path, capsys: pytest.Ca
     assert exit_code == 2
     err = capsys.readouterr().err
     assert 'run seshat scan' in err
+
+
+# -- PT-01: `seshat clear` and `seshat scan --clear` -------------------------
+
+
+def test_clear_on_repo_with_seshat_dir_lists_files_and_removes_directory(
+    scanned_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seshat_dir = scanned_repo / '.seshat'
+    assert (seshat_dir / 'ledger.db').exists()
+    assert (seshat_dir / 'memory.db').exists()
+    assert (scanned_repo / '.codegraph').exists()
+
+    capsys.readouterr()  # drain the scan's own output
+    exit_code = cli.main(['clear', str(scanned_repo)])
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert 'ledger.db' in out
+    assert 'memory.db' in out
+    assert f'cleared {scanned_repo / ".seshat"}' in out
+    assert not seshat_dir.exists()
+    assert (scanned_repo / '.codegraph').exists()
+
+
+def test_clear_on_repo_without_seshat_dir_exits_zero_with_nothing_to_clear(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert not (repo / '.seshat').exists()
+
+    exit_code = cli.main(['clear', str(repo)])
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert f'nothing to clear at {repo / ".seshat"}' in captured.out
+    assert captured.err == ''
+
+
+def test_clear_does_not_require_a_ledger_to_exist(repo: Path) -> None:
+    """Unlike every other non-`scan` command, `clear` must not be blocked by
+    `main`'s missing-ledger.db guard — that is the whole point of the command.
+    """
+    assert not (repo / '.seshat' / 'ledger.db').exists()
+
+    exit_code = cli.main(['clear', str(repo)])
+
+    assert exit_code == 0
+
+
+def test_top_level_help_mentions_clear(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(['--help'])
+    out = capsys.readouterr().out
+    assert 'clear' in out
+
+
+def test_clear_help_describes_the_command(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(['clear', '--help'])
+    out = capsys.readouterr().out
+    assert '.seshat' in out
+
+
+def test_scan_clear_flag_wipes_a_prior_run_before_indexing(
+    repo: Path, stubbed_scan: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first_exit = _run_scan(repo)
+    assert first_exit == 0
+    with Ledger.open(repo) as ledger:
+        first_run = ledger.last_run()
+        assert first_run is not None
+
+    capsys.readouterr()
+
+    second_exit = cli.main(
+        ['scan', str(repo), '--units', '1000', '--minutes', '1000', '--tokens', '100000000', '--clear']
+    )
+
+    assert second_exit == 0
+    with Ledger.open(repo) as ledger:
+        second_run = ledger.last_run()
+        assert second_run is not None
+        assert second_run.id != first_run.id
+    out = capsys.readouterr().out
+    assert f'cleared {repo / ".seshat"}' in out
+
+
+# -- regression: a partial delete failure never claims success --------------
+
+
+def test_clear_reports_partial_removal_and_fails_cleanly_on_a_permission_error(
+    repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file `.seshat/` cannot delete (e.g. a permission error) must never be
+    swallowed into a raw traceback, and must never be reported as a
+    successful `cleared ...` -- the CLI catches the failure, reports what it
+    already removed (if anything), reports the error on stderr, and exits 1.
+    """
+    with Ledger.open(repo):
+        pass
+    seshat_dir = repo / '.seshat'
+    assert seshat_dir.exists()
+
+    os.chmod(seshat_dir, 0o500)  # read + execute only: unlink() inside fails
+    try:
+        exit_code = cli.main(['clear', str(repo)])
+    finally:
+        os.chmod(seshat_dir, 0o700)  # restore so pytest's tmp_path cleanup can run
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert 'cleared' not in captured.out
+    assert 'clear failed' in captured.err
+    # the failure is real, not swallowed: something of .seshat/ is still there
+    assert seshat_dir.exists()
+
+
+def test_scan_clear_flag_partial_failure_reports_removed_paths_and_never_indexes(
+    repo: Path, llm_host_env: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`seshat scan --clear` hitting a partial delete failure must report the
+    same partial progress `seshat clear` does -- every path it managed to
+    remove, printed, one per line -- then `scan failed: ...` on stderr, exit
+    1, and never a `cleared` line. It must also never reach the indexer:
+    `run_scan`'s clear step runs before step 1 (index), so a clear failure
+    has to stop the scan there, not index a repo whose `.seshat/` clear
+    half-failed.
+
+    `.seshat/other/nested/deep.txt` sits three segments deep and
+    `.seshat/locked/inner.txt` two -- `clear_seshat_dir` sorts
+    deepest-first, so `deep.txt` is *always* removed (and its removal
+    printed) strictly before the walk ever reaches into the chmod-locked
+    `locked/` directory and fails on `inner.txt`, regardless of any
+    same-depth tie-break the filesystem happens to produce.
+    """
+    with Ledger.open(repo):
+        pass
+    seshat_dir = repo / '.seshat'
+    assert seshat_dir.exists()
+
+    deep_dir = seshat_dir / 'other' / 'nested'
+    deep_dir.mkdir(parents=True)
+    (deep_dir / 'deep.txt').write_text('removable')
+
+    locked_dir = seshat_dir / 'locked'
+    locked_dir.mkdir()
+    (locked_dir / 'inner.txt').write_text('stuck')
+
+    indexer_calls: list[Path] = []
+
+    def spy_indexer(indexed_repo: Path) -> None:
+        indexer_calls.append(indexed_repo)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(cli, 'indexer', spy_indexer)
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: SpyFactory())
+
+    os.chmod(locked_dir, 0o500)  # read + execute only: unlink() of inner.txt fails
+    try:
+        exit_code = cli.main(['scan', str(repo), '--clear'])
+    finally:
+        os.chmod(locked_dir, 0o700)  # restore so pytest's tmp_path cleanup can run
+        monkeypatch.undo()
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert 'cleared' not in captured.out
+    assert 'deep.txt' in captured.out
+    assert 'scan failed' in captured.err
+    assert indexer_calls == []

@@ -617,3 +617,150 @@ def test_naming_line_unresolved_unit_id_falls_back_to_the_raw_id(tmp_path: Path)
 
     assert line is not None
     assert 'no-such-unit-id' in line
+
+
+# -- PT-01: `clear_seshat_dir` -----------------------------------------------
+
+
+def test_clear_seshat_dir_removes_files_then_directory_and_returns_paths(tmp_path: Path) -> None:
+    """Opening a ledger creates `.seshat/ledger.db` (plus WAL side files) and, once
+    `open_working_memory` runs, `.seshat/memory.db` too. `clear_seshat_dir` must
+    remove the whole directory and hand back every path it removed, files before
+    the directory itself, and must never touch a sibling `.codegraph/`.
+    """
+    from seshat.memory import open_working_memory
+    from seshat.scan import clear_seshat_dir
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    (repo / '.codegraph').mkdir()
+    (repo / '.codegraph' / 'codegraph.db').write_text('graph')
+
+    with Ledger.open(repo):
+        pass
+    open_working_memory(repo)  # writes .seshat/memory.db on first store access
+
+    seshat_dir = repo / '.seshat'
+    assert seshat_dir.exists()
+    assert (seshat_dir / 'ledger.db').exists()
+
+    removed = clear_seshat_dir(repo)
+
+    assert not seshat_dir.exists()
+    assert (repo / '.codegraph').exists()
+    assert (repo / '.codegraph' / 'codegraph.db').exists()
+    assert removed, 'expected at least ledger.db and the directory itself to be reported'
+    assert removed[-1] == seshat_dir
+    assert all(p == seshat_dir or p.is_relative_to(seshat_dir) for p in removed)
+    # files before the directory itself
+    for path in removed[:-1]:
+        assert path != seshat_dir
+
+
+def test_clear_seshat_dir_on_missing_directory_returns_empty_list(tmp_path: Path) -> None:
+    from seshat.scan import clear_seshat_dir
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+
+    assert clear_seshat_dir(repo) == []
+
+
+# -- regression: `.seshat` itself is a symlink ------------------------------
+
+
+def test_clear_seshat_dir_on_symlinked_root_removes_only_the_link(tmp_path: Path) -> None:
+    """`<repo>/.seshat` being a symlink must never be followed for deletion --
+    the link itself is removed with `unlink()`, and whatever it points at
+    (which could be anywhere on disk) is left completely alone.
+    """
+    from seshat.scan import clear_seshat_dir
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    sentinel = outside / 'sentinel.txt'
+    sentinel.write_text('do not touch')
+
+    (repo / '.seshat').symlink_to(outside, target_is_directory=True)
+
+    removed = clear_seshat_dir(repo)
+
+    assert sentinel.exists()
+    assert sentinel.read_text() == 'do not touch'
+    assert not (repo / '.seshat').exists()
+    assert not (repo / '.seshat').is_symlink()
+    assert removed == [repo / '.seshat']
+
+
+def test_clear_seshat_dir_on_dangling_symlinked_root_removes_the_link(tmp_path: Path) -> None:
+    """A dangling `.seshat` symlink (target no longer exists) must still be
+    removed -- `Path.exists()` follows symlinks and returns `False` for a
+    dangling one, so a naive `exists()` guard leaves it behind forever.
+    """
+    from seshat.scan import clear_seshat_dir
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    (repo / '.seshat').symlink_to(tmp_path / 'does-not-exist')
+
+    removed = clear_seshat_dir(repo)
+
+    assert not (repo / '.seshat').is_symlink()
+    assert removed == [repo / '.seshat']
+
+
+# -- regression: a symlink to a directory inside `.seshat/` -----------------
+
+
+def test_clear_seshat_dir_with_a_symlinked_subdir_does_not_delete_its_target(tmp_path: Path) -> None:
+    """An entry inside `.seshat/` that is itself a symlink to a directory
+    must be removed with `unlink()`, not `rmdir()` -- `rmdir()` on a
+    symlink-to-directory raises `NotADirectoryError`, and even if it did not,
+    walking into it and deleting its contents would destroy whatever
+    directory it points at, which can be outside `.seshat/` entirely.
+    """
+    from seshat.scan import clear_seshat_dir
+
+    repo = tmp_path / 'repo'
+    repo.mkdir()
+    seshat_dir = repo / '.seshat'
+    seshat_dir.mkdir()
+    (seshat_dir / 'ledger.db').write_text('db')
+
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    outside_file = outside / 'keep.txt'
+    outside_file.write_text('keep me')
+    (seshat_dir / 'linked').symlink_to(outside, target_is_directory=True)
+
+    clear_seshat_dir(repo)
+
+    assert outside.exists()
+    assert outside_file.exists()
+    assert outside_file.read_text() == 'keep me'
+    assert not seshat_dir.exists()
+
+
+def test_scan_clear_option_wipes_previous_run_before_indexing(repo: Path, settings: Settings) -> None:
+    """`ScanOptions(clear=True)` clears `.seshat/` before step 1 (index), so a
+    ledger row written by a prior `run_scan` is gone afterwards and the new run
+    is the only run in the ledger.
+    """
+    plain_options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+    first = run_scan(repo, plain_options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+    assert first.status == 'stopped_complete'
+
+    with Ledger.open(repo) as ledger:
+        assert ledger.last_run() is not None
+
+    clear_options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, clear=True)
+    second = run_scan(repo, clear_options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+    assert second.status == 'stopped_complete'
+
+    with Ledger.open(repo) as ledger:
+        last = ledger.last_run()
+        assert last is not None
+        assert last.id == second.id
+        assert last.id != first.id
