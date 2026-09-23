@@ -14,10 +14,12 @@ this file.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -68,6 +70,12 @@ class StubWorker:
         self.graph = None
         self.run_id: str | None = None
         self._unit = None
+        # PT-03: 0 means "no delay" (every existing test's shape); a test
+        # exercising `--unit-timeout` sets this on the instance (or via
+        # `SlowFactory` below) so `survey` awaits a real, cancellable sleep
+        # before it does anything else -- `asyncio.wait_for` can only cancel
+        # an awaitable, never a synchronous `time.sleep`.
+        self.sleep_seconds: float = 0.0
 
     def begin_unit(self, unit) -> None:
         self._unit = unit
@@ -79,6 +87,11 @@ class StubWorker:
     async def survey(self, unit) -> UnitReport:
         assert self.ledger is not None
         assert self.run_id is not None
+        if self.sleep_seconds:
+            # Deliberately the very first thing this turn does: a unit
+            # cancelled mid-sleep must reach the ledger with zero claim
+            # writes at all, not merely no *confirmed*/*refuted* ones.
+            await asyncio.sleep(self.sleep_seconds)
         confirmed = self.ledger.add_claim(
             Claim(
                 id='',
@@ -168,6 +181,28 @@ class FlakyFactory:
 
     def __call__(self):
         worker = RaisingWorker() if len(self.made) >= self.fail_after else StubWorker()
+        self.made.append(worker)
+        return worker
+
+
+@dataclass
+class SlowFactory:
+    """Returns a `StubWorker` whose `survey` sleeps `sleep_seconds` for the
+    first `slow_for` calls, then plain fast `StubWorker`s after that (PT-03).
+
+    Mirrors `FlakyFactory`'s shape: some units behave normally so a test can
+    see the run continue (or not) past the abandoned one, rather than every
+    unit in the queue timing out identically.
+    """
+
+    sleep_seconds: float
+    slow_for: int = 1
+    made: list = field(default_factory=list)
+
+    def __call__(self):
+        worker = StubWorker()
+        if len(self.made) < self.slow_for:
+            worker.sleep_seconds = self.sleep_seconds
         self.made.append(worker)
         return worker
 
@@ -933,3 +968,131 @@ def test_scan_clear_option_wipes_previous_run_before_indexing(repo: Path, settin
         assert last is not None
         assert last.id == second.id
         assert last.id != first.id
+
+
+# -- PT-03: `--unit-timeout` and a hard `--minutes` wall ---------------------
+
+
+def test_unit_timeout_abandons_one_unit_and_the_run_continues(
+    repo: Path, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`unit_timeout=0.05`, first worker sleeps `0.5`: that unit is abandoned
+    (no confirmed/refuted claim rows for it, `units_done` excludes it, a
+    `timeout after` line is printed) and the run keeps going -- later units
+    are still processed normally.
+    """
+    factory = SlowFactory(sleep_seconds=0.5, slow_for=1)
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, unit_timeout=0.05)
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    assert len(factory.made) > 1, 'the run must have continued past the abandoned unit'
+
+    abandoned_unit = factory.made[0]._unit
+    with Ledger.open(repo) as ledger:
+        claims = ledger.claims_for_unit(abandoned_unit.id)
+        assert all(c.status not in ('confirmed', 'refuted') for c in claims)
+
+    # units_done excludes the abandoned unit; every other made worker's unit
+    # completed normally and is counted.
+    assert run.units_done == len(factory.made) - 1
+
+    out = capsys.readouterr().out
+    timeout_lines = [line for line in out.splitlines() if 'timeout after' in line]
+    assert len(timeout_lines) == 1, f'expected exactly one timeout line, got: {timeout_lines!r}'
+    assert abandoned_unit.qualified_name in timeout_lines[0]
+    # The abandoned unit is the first one processed, so the *running* total
+    # at the moment it times out is still zero -- like every other status
+    # line, this must be `stats.tokens_used` (the run's running total), never
+    # the abandoned worker's own, unrelated `tokens_used` property (a stub
+    # `StubWorker.FIXED_TOKENS`, which would print misleadingly here and
+    # disagree with the final `run.tokens_used` line's own accounting).
+    assert 'tokens=0 ' in timeout_lines[0]
+    assert f'tokens={StubWorker.FIXED_TOKENS}' not in timeout_lines[0]
+    assert out.count('timed_out=') == 1
+    assert 'timed_out=1' in out
+
+
+def test_minutes_wall_mid_unit_ends_run_stopped_budget_under_five_seconds(repo: Path, settings: Settings) -> None:
+    """The minutes wall, not `unit_timeout`, must be the limit actually used
+    here -- `unit_timeout=10` is generous enough that it would never itself
+    cut a 10s sleep short. `minutes=0.05` (~3s) leaves generous headroom over
+    this process's own scan setup (indexing is stubbed, but ledger/graph
+    open, unit sync and queue build still take real, if small, time -- more
+    on a loaded shared box) that the sleeping unit's worker genuinely gets
+    built and started -- this is not the `unit_timeout=0`-style "never even
+    starts" case above, it is a real mid-sleep cutoff.
+
+    A `min()` that silently drops the minutes-derived limit (using
+    `unit_timeout` alone) lets the whole 10s sleep run to completion; the run
+    then only stops on the old between-unit budget check, ten-plus seconds
+    later -- `wall_time` catches that (and stays well under five seconds with
+    the real `min()`, since the cutoff itself lands at roughly `minutes*60`
+    regardless of how long setup took, as long as setup left the minutes
+    wall still ahead of it -- the wide margin between the ~3s expected
+    cutoff and the 5s bound is exactly the slack a slow/loaded box needs so
+    correct code cannot fail this test on setup overhead alone).
+    """
+    factory = SlowFactory(sleep_seconds=10.0, slow_for=1)
+    options = ScanOptions(units=10_000, minutes=0.05, tokens=10_000_000, unit_timeout=10)
+
+    started = time.monotonic()
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+    wall_time = time.monotonic() - started
+
+    assert len(factory.made) >= 1, 'the sleeping unit must actually have been started'
+    assert run.status == 'stopped_budget'
+    assert wall_time < 5.0, f'expected the minutes wall to cut the sleep short, took {wall_time}s'
+
+
+def test_unit_timeout_of_zero_stops_before_starting_any_unit(repo: Path, settings: Settings) -> None:
+    """`unit_timeout=0` (not merely negative, not merely a minutes-wall
+    side-effect) is its own boundary: `limit` lands at exactly zero, which
+    must still stop the run *before* a worker is built for the next unit --
+    `units`/`minutes`/`tokens` here are all generous, so the old
+    `_budget_exhausted()` check never fires, isolating the `limit <= 0`
+    branch on its own.
+    """
+    factory = SpyFactory()
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, unit_timeout=0)
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_budget'
+    assert run.units_done == 0
+    assert factory.made == [], 'no worker should ever have been built with unit_timeout=0'
+
+
+def test_generous_unit_timeout_behaves_like_no_timeout(repo: Path, settings: Settings) -> None:
+    """`unit_timeout=10` (generous) with a fast worker: identical shape to
+    `test_large_budget_drains_queue_and_completes` -- the timeout machinery
+    does not change ordinary behaviour when nothing ever times out.
+    """
+    factory = SpyFactory()
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, unit_timeout=10)
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    assert run.units_done == len(factory.made)
+    assert run.units_done > 2
+    assert run.claims_confirmed == run.units_done
+    assert run.claims_refuted == run.units_done
+    assert run.tokens_used == run.units_done * StubWorker.FIXED_TOKENS
+
+
+def test_unit_timeout_with_two_workers_does_not_corrupt_shared_accounting(repo: Path, settings: Settings) -> None:
+    """One worker's timeout among several concurrent ones must not leak into
+    the shared counters -- `claims_confirmed`/`claims_refuted` still line up
+    exactly with `units_done` (one confirmed + one refuted per completed
+    unit, none for the abandoned one).
+    """
+    factory = SlowFactory(sleep_seconds=0.3, slow_for=1)
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, unit_timeout=0.05, workers=2)
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    assert run.units_done == run.claims_confirmed == run.claims_refuted
+    assert run.units_done == len(factory.made) - 1

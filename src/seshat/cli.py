@@ -123,6 +123,12 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument('--units', type=int, default=5)
     scan_parser.add_argument('--minutes', type=float, default=10)
     scan_parser.add_argument('--tokens', type=int, default=200_000)
+    scan_parser.add_argument(
+        '--unit-timeout',
+        type=float,
+        default=300.0,
+        help='seconds one unit may hold a worker before it is abandoned (default 300)',
+    )
     scan_parser.add_argument('--workers', type=int, default=1)
     scan_parser.add_argument('--no-thinking', action='store_true')
     scan_parser.add_argument('--full', action='store_true')
@@ -222,6 +228,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         units=args.units,
         minutes=args.minutes,
         tokens=args.tokens,
+        unit_timeout=args.unit_timeout,
         workers=args.workers,
         thinking=not args.no_thinking,
         full=args.full,

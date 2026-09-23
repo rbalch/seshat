@@ -69,6 +69,7 @@ class ScanOptions:
     units: int = 5
     minutes: float = 10
     tokens: int = 200_000
+    unit_timeout: float = 300.0
     workers: int = 1
     thinking: bool = True
     full: bool = False
@@ -202,6 +203,7 @@ class _Stats:
     claims_confirmed: int = 0
     claims_refuted: int = 0
     tokens_used: int = 0
+    timed_out: int = 0
 
 
 def _status_line(
@@ -383,6 +385,11 @@ def run_scan(
         final_status = _drive_pool(
             queue, options, worker_factory, ledger, graph, run, stats, started_at, unreadable_count
         )
+        # PT-03 scope item 5: a count of abandoned units, once, at the end,
+        # only when at least one actually timed out -- silent at zero, same
+        # rule T-15 applies to the unreadable-naming line.
+        if stats.timed_out > 0:
+            print(f'timed_out={stats.timed_out}')
     except BaseException as exc:
         # Deliberately no `after_scan` call here: reflection (T-10) runs over
         # a completed scan's claims, and a run that crashed mid-pool has no
@@ -489,11 +496,40 @@ def _drive_pool(
                 if _budget_exhausted():
                     stop_reason[0] = 'stopped_budget'
                     return
+                # PT-03: a unit_timeout limit of zero or less means the
+                # minutes wall is already hit -- stop here, before a fresh
+                # worker is even built, same as the budget check just above.
+                seconds_left = (options.minutes * 60.0) - (time.monotonic() - started_at)
+                minutes_is_smaller = seconds_left <= options.unit_timeout
+                limit = seconds_left if minutes_is_smaller else options.unit_timeout
+                if limit <= 0:
+                    stop_reason[0] = 'stopped_budget'
+                    return
                 unit = queue[index]
                 index += 1
 
             worker = worker_factory()
-            report = await run_unit(worker, unit, ledger, graph, run.id)
+            try:
+                report = await asyncio.wait_for(run_unit(worker, unit, ledger, graph, run.id), timeout=limit)
+            except TimeoutError:
+                # The unit is abandoned: no accounting for it beyond the
+                # print and the timed_out counter below -- `run_unit` never
+                # reached its own `ledger.set_unit_status(..., 'scanned', ...)`
+                # call, so the unit's status is whatever it was before this
+                # attempt, and no claim of its own got promoted past
+                # `conjectured` (see `Worker.verify_claim`: promotion only
+                # happens after `verify_and_record` returns, which this
+                # cancellation never let run to completion).
+                async with lock:
+                    stats.timed_out += 1
+                    elapsed = time.monotonic() - started_at
+                    print(
+                        f'[{stats.units_done}/{queued}] {unit.qualified_name} '
+                        f'timeout after {limit:.3g}s tokens={stats.tokens_used} elapsed={elapsed:.1f}s'
+                    )
+                    if minutes_is_smaller:
+                        stop_reason[0] = 'stopped_budget'
+                continue
 
             async with lock:
                 stats.units_done += 1
