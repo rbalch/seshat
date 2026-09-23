@@ -2432,7 +2432,11 @@ recorded here so they are not rediscovered later.
   (`tests/test_verify.py` x3, `tests/ledger/test_store_fixes.py`,
   `tests/agents/test_verifier_author.py`, `tests/agents/test_worker.py`,
   `tests/test_scan.py`). Nobody logged them because nobody searched for them.
-- **Action:** removed from both PRs before squash. Dispatched `control-author`.
+- **Action:** graduated to DEC-4, PR #24: decision, control
+  `controls/fitness/review_round_refs.py`, 13 tests, 11 existing citations reworded. The
+  control reads only comments and docstrings, never string literals, and skips `docs/`.
+  The control-author searched case-insensitively and found four `Fix round N` headers in
+  `tests/test_task_symbols.py` that my case-sensitive search had missed.
 - **Notes:** Correction: this entry first said the grep was empty on `develop`. I had
   searched `src` only. A brief instruction did not hold across two builders in one batch,
   which is the soft layer failing on a rule a machine can check.
@@ -2496,3 +2500,46 @@ recorded here so they are not rediscovered later.
   stated count.
 - The builder chose to report every unmatched `--file` at once, which the task did not
   specify. Reviewed and accepted.
+
+### F-66 — a task's example timing value made its own acceptance test vacuous
+
+- **Date:** 2026-09-23
+- **Task:** PT-03
+- **Bin:** 2 — the `F-47` family (values a task file hands the builder that do not do
+  what the task says), second sighting.
+- **Claim:** The acceptance bullet suggested `minutes=0.002` (0.12s) so that the wall
+  would land mid-unit. Scan setup alone takes about 0.4s, so the budget was gone before
+  the first unit started. The test went red for the missing feature, then green because
+  nothing ran. Dropping the minutes limit from the code left it green. Checkable form: a
+  timing acceptance test asserts that the thing it times actually started (a worker was
+  made) before asserting how it ended.
+- **Sightings:** 2 as the family (`F-47`, T-14; this one).
+- **Action:** the human ratified a reworded bullet (3s wall, worker sleeps 10s, under
+  5s, at least one worker made). The test now fails at 10.4s when the limit is dropped.
+- **Notes:** The boundary reviewer found the gap by mutation; the builder found the
+  cause (setup overhead) with one debug print. The code reviewer then stopped the loop
+  with `NEEDS_HUMAN`, correctly: changing an acceptance test's promise is the human's
+  call, even with the evidence in hand. Its removed-lines check used the task's red SHA
+  (`567de25..HEAD`), not the stack base, and that is why it saw the change. My PT-03 brief
+  gave the builder the stack base, which folds every edit to the task's own tests into
+  new lines and hides them. The check belongs against the red SHA; `F-63` had it right.
+
+### Planning notes from PT-03
+
+- The mutation family (`F-45`/`F-48`/`F-53`, sixth in PT-02): seventh sighting, one
+  task. Dropping `min()` and loosening `<= 0` to `< 0` both left the suite green. Both are
+  now pinned. Still no control, as settled.
+- Re-observation of `F-58`, not new: a timed-out unit's tokens never reach the run total,
+  so `--tokens` cannot see abandoned work. The live run spent about 11k tokens and
+  reported `tokens=0`. Out of scope by the task's own non-scope. It is the next budget
+  bug.
+- Bin 3: the timeout status line printed the abandoned worker's own tokens, while every
+  other line prints the run total. Fixed; one sighting.
+- Harness cost, second round of it: `pyproject.toml` runs pytest with `-n auto`, the host
+  has 52 cores, and `make check` runs pytest twice. Two reviewers gating at once pushed
+  load to 46, and the human asked what was going on. Briefs now cap it with
+  `PYTEST_XDIST_AUTO_NUM_WORKERS=4`, and the gate runs at most twice per agent. A
+  default cap in `pyproject.toml` would fix it for everyone; not changed without asking.
+- The live QA in this task is the first real proof in phase two. On the Spark,
+  `--minutes 1 --unit-timeout 20` stopped at 62s, where it used to run on unbounded. No
+  unit finished inside 20s on the 27B model.
