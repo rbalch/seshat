@@ -111,7 +111,7 @@ def test_import_os_errors_before_execution(graph: Graph, tmp_path: Path):
     assert not marker.exists(), 'os.system ran: the import gate did not stop execution'
 
 
-# --- fix round 2, item 1: builtins allow-list, not the real `__builtins__` module ---
+# --- builtins allow-list, not the real `__builtins__` module ---
 
 
 def test_dunder_import_builtin_does_not_pass_and_marker_never_written(graph: Graph, tmp_path: Path):
@@ -158,7 +158,7 @@ def check(graph):
     assert result.status == 'pass', 'documents a known gap: dunder-traversal reaches sys without any builtin'
 
 
-# --- fix round 2, item 2: sets are order-independent, lists/tuples are not ---
+# --- sets are order-independent, lists/tuples are not ---
 
 
 def test_set_actual_passes_regardless_of_iteration_order(graph: Graph):
@@ -268,7 +268,7 @@ def check(graph):
     assert reason is not None
 
 
-# --- fix round 3, item 1: only graph.node(...) is unprovable; other methods are not ---
+# --- only graph.node(...) is unprovable; other methods are not ---
 
 
 TWO_STEP_LOOKUP_SOURCE = """
