@@ -2242,6 +2242,139 @@ recorded here so they are not rediscovered later.
   dispatch. Under the `F-22` family (acceptance vs scope) this is one more sighting of
   the shape the critic exists to catch, caught where it should be.
 
+### F-54 — dogfood: passing predicates do not establish the recorded sentences
+
+- **Date:** 2026-09-22
+- **Bin:** unbinned product/design finding
+- **Claim:** All four confirmed claims in dogfood run
+  `7f5bec7fdce04b7f9d5e512940483e29` assert more than their verifiers check.
+  The xxd rejection claim checks a `RuntimeError` reference; the binary-read fallback
+  checks a call edge; exact replacement cardinality checks a `ValueError` reference;
+  parent-directory creation with specific options checks a `mkdir` reference.
+- **Sightings:** 1 run; four examples, not four independent sightings.
+- **Action:** soft — review evidence only; no control or implementation change.
+- **Notes:** In a disposable copy of `shell_tools.py`, changing
+  `mkdir(parents=True, exist_ok=True)` to `mkdir(parents=False, exist_ok=False)` and
+  rebuilding the graph leaves the original stored verifier passing. No target code
+  was executed. The original target and its ledger were not edited. Arbitrary prose
+  entailment is not a sound fitness-control target; evaluate supported claim forms
+  and falsifying mutations instead. The different-angle gate in `verify.py` checks
+  method names, not whether a returned predicate establishes the sentence.
+
+### F-55 — answer tools discard the evidence text before returning search results
+
+- **Date:** 2026-09-22
+- **Bin:** 2
+- **Claim:** `AnswerAgent.search_claims` and `claims_for` return only claim IDs and
+  rendered locations, omitting the claim text and explicit claim status; concept
+  search also omits title/body when evidence renders. The supported claim tools
+  therefore cannot supply the facts the answer agent is instructed to paraphrase.
+- **Sightings:** 1 review.
+- **Action:** soft — reported; no control yet.
+- **Notes:** Reproduced against the dogfood ledger without calling a model. All four
+  confirmed claims return the same class-wide location, with different opaque IDs.
+  FTS additionally phrase-quotes whole questions; `mkdir` finds a claim while
+  `Does write_file create parent directories?` does not. Query rewriting can mitigate
+  lexical retrieval, but cannot recover text discarded by the tool contract.
+
+### F-56 — citation validation permits conjectures and does not establish support
+
+- **Date:** 2026-09-22
+- **Bin:** 2
+- **Claim:** The answer path accepts any existing claim ID, including a conjectured
+  claim without a verifier. Search does not filter to confirmed claims, and the
+  renderer omits the claim's own status and ID.
+- **Sightings:** 1 review; citation-format omissions also have prior context in F-39.
+- **Action:** soft — reported; no new control.
+- **Notes:** Passing an unsupported sentence with the dogfood run's conjectured claim
+  ID through `validate_answer` preserves it and renders `@- [-]`, without identifying
+  it as conjectured. Eligibility/status checks are testable; semantic entailment is a
+  separate problem that cannot be solved by checking ID existence. Reflection likewise
+  filters evidence IDs while retaining the draft body unchanged.
+
+### F-57 — verifier reruns do not reconcile claim and concept validity
+
+- **Date:** 2026-09-22
+- **Bin:** 2
+- **Claim:** `verify_and_record` updates only verifier metadata. A passing rerun leaves
+  a previously stale claim stale; a failing dependent verifier does not invalidate
+  its otherwise unchanged owner claim or its concepts. `stale_report` selects only
+  claim/concept status, so these outcomes can disagree with reported drift.
+- **Sightings:** 1 review; F-29 contains relevant planning history, not a prior
+  successful diagnosis of the dependent-owner case.
+- **Action:** soft — reported; no control yet.
+- **Notes:** Reproduced stale-after-pass using an SQLite backup of the dogfood ledger
+  and the original read-only graph. All five claims share the class unit; marking
+  that unit stale invalidates all five regardless of the specific property changed.
+  Dependency selection trusts model-authored IDs, excludes newly added units, and
+  `verifiers_to_rerun` omits the unreadable set. Exact claim-level drift needs a
+  defined lifecycle and dependency/query coverage, not just unit hashes.
+
+### F-58 — failed-unit work disappears from scan accounting and budgets
+
+- **Date:** 2026-09-22
+- **Bin:** 2
+- **Claim:** Scan counters and budget checks operate at completed-unit boundaries;
+  work persisted inside an unfinished unit is absent from the run counters. The
+  worker token meter also excludes verifier-author and reflection calls.
+- **Sightings:** 1 review, including the first dogfood run.
+- **Action:** soft — reported; no control yet.
+- **Notes:** The run lasted 23m30.609s with a 10-minute budget, ended `failed`, and
+  recorded zero completed units, confirmed claims, and tokens despite four confirmed
+  rows and one conjecture. There are 744 pending and four vanished units, no scanned
+  units, and no concepts. The ledger does not persist the failure reason, so this
+  review does not attribute the terminal exception to model capability. Scan model
+  and thinking flags remain disconnected from client settings, already recorded in
+  the T-12 planning notes above; this is a re-observation, not a new independent
+  occurrence. The CLI worker factory also never attaches the offered codegraph MCP.
+
+### F-59 — phase-one acceptance asks for facts outside its verifier contract
+
+- **Date:** 2026-09-22
+- **Bin:** unbinned product/design finding
+- **Claim:** `plan.md` section 9 requires answers about pruning constants, immune
+  memory types, and execution timeout defaults, while section 6's verifier API
+  exposes nodes, relations, names, and spans but no constant/default/condition values.
+- **Sightings:** 1 review.
+- **Action:** soft — design feedback; no speculative governance rule.
+- **Notes:** Static AST queries can support these source facts without running target
+  code. Requiring a different angle is not a substitute for checking the proposition
+  itself. The research's intent-search and coding-substrate goals need an explicit
+  evidence capability matrix and accuracy/coverage/cost evaluation. Per-unit quotas
+  and insertion-order reflection batches do not establish those outcomes.
+
+### F-60 — harness: task compliance has not demonstrated product acceptance
+
+- **Date:** 2026-09-22
+- **Bin:** unbinned harness finding
+- **Claim:** The live worker test requires only one claim row, and the live answer
+  test requires only one surviving citation. Neither establishes the five dogfood
+  answers or verifier sensitivity to a change that falsifies its prose claim.
+- **Sightings:** 1 product review.
+- **Action:** soft — record the evaluation gap; no new control.
+- **Notes:** The original plan puts a live smoke and one useful worker turn before
+  the full build; the task decomposition places the smoke after the worker and the
+  dogfood acceptance after the CLI. Existing review logs demonstrate detailed task
+  checks, including legitimate fixes, but do not demonstrate product usefulness.
+  The verdict that the initial experiment was overbuilt is a product judgment,
+  not a lintable property or a basis for another architectural control.
+
+### F-61 — test isolation re-observation: stripping LLM_HOST permits dotenv to restore it
+
+- **Date:** 2026-09-22
+- **Bin:** 2 — environment-isolation family, see F-52.
+- **Claim:** `tests/test_smoke_script.py` removes `LLM_HOST` from subprocess environments,
+  but the installed LiteLLM loads dotenv by default and can restore it. Two parser
+  tests actually completed live smoke runs and returned 0 where the tests expected
+  missing-configuration exit 1.
+- **Sightings:** Re-observation of the existing environment leak, not a new defect
+  counted toward another control.
+- **Action:** soft — reported; no code or control change.
+- **Notes:** The ambient `make check` reported two failures and 357 passes before the
+  remaining work was interrupted. An offline gate is run with `LLM_HOST=` and
+  `LITELLM_MODE=PRODUCTION` to disable both live integration and implicit dotenv loading.
+  The observed failures do not demonstrate that the model failed the smoke; the two
+  completed CodeAct subprocesses succeeded. Live product acceptance remains unproven.
 
 ### F-62 — a recursive delete followed a symlinked root out of the repo
 
