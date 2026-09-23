@@ -205,10 +205,9 @@ def test_read_span_fails_closed_on_a_non_utf8_source_file(graph: Graph, repo: Pa
     Exercises `_read_span` directly rather than through `unit_brief()`:
     `unit_brief()` also calls `Graph.decorators()`, which has its own,
     separate unguarded `read_text()` on the same file (`graph.py`'s ast
-    fallback path) — a real gap, but in a module T-08 does not own and
-    this fix round did not touch; reported to the orchestrator rather than
-    patched here, so this test isolates the one function this finding is
-    actually about.
+    fallback path) — a real gap, but in a module T-08 does not own, so it
+    is reported to the orchestrator rather than patched here, and this test
+    isolates the one function this regression is actually about.
     """
     node = graph.node(unit.qualified_name)
     assert node is not None

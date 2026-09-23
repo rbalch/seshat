@@ -495,7 +495,7 @@ def test_crash_before_sync_units_reports_zero_unreadable(
     assert 'unreadable=0' in failure_lines[0]
 
 
-# -- fix round 1: naming-line cap/remainder arithmetic, unresolved-id fallback
+# -- naming-line cap/remainder arithmetic, unresolved-id fallback
 
 # Follow-up findings on T-15: the `and N more` arithmetic in
 # `_unreadable_names_line` and the `ledger.unit(...) is None` fallback both

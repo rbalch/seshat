@@ -46,7 +46,7 @@ def not_check(graph):
 """
 
 # A bare substring check on 'def check(' is defeated by this: the literal text
-# appears (in a comment) but there is no such function. See fix round 1, item 2.
+# appears (in a comment) but there is no such function.
 CHECK_LOOKALIKE_SOURCE = """
 # TODO: implement def check(graph)
 def not_check(graph):

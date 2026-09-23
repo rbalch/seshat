@@ -250,11 +250,11 @@ def test_make_task_symbols_target_present_and_not_gated():
         assert 'task-symbols' not in recipe, f'{gate} must not reach task-symbols'
 
 
-# --- Fix round 1 -------------------------------------------------------------
+# --- declared-vs-resolved edge cases -----------------------------------------
 #
-# Reviewers found the "declared by this task" exemption was a heuristic (item 1),
-# section parsing silently drops content (item 2), the tool can crash on unreadable
-# input (item 3), and an arrow-return signature loses both names (item 4).
+# The "declared by this task" exemption was a heuristic, section parsing could
+# silently drop content, the tool could crash on unreadable input, and an
+# arrow-return signature lost both names.
 
 
 def test_unrelated_files_entry_does_not_exempt_signature_shaped_name(tmp_path):
@@ -362,11 +362,11 @@ def test_arrow_return_signature_checks_both_names(tmp_path):
     assert 'ReflectionSummary' in result.stdout
 
 
-# --- Fix round 2 -------------------------------------------------------------
+# --- fence recovery and membership coverage ----------------------------------
 #
 # An unclosed fence must recover rather than silently swallow the rest of the
-# file (item 1), and the resolved-vs-declared membership check needs a test of
-# its own so a "files: merely non-empty" mutation cannot ship unnoticed (item 2).
+# file, and the resolved-vs-declared membership check needs a test of its own
+# so a "files: merely non-empty" mutation cannot ship unnoticed.
 
 
 def test_unterminated_fence_recovers_content_and_warns(tmp_path):
@@ -418,7 +418,7 @@ def test_resolved_name_not_in_files_stays_resolved_not_declared(tmp_path):
     assert 'some_helper' not in declared_section
 
 
-# --- Fix round 3 -------------------------------------------------------------
+# --- double-unclosed-fence parity trap ----------------------------------------
 #
 # Two fences that are each independently opened and never closed sum to an even
 # delimiter count -- indistinguishable, by CommonMark's own rules, from one
@@ -450,7 +450,7 @@ def test_two_unterminated_fences_that_pair_up_still_warn_about_swallowed_header(
     assert '## Acceptance' in result.stdout
 
 
-# --- Fix round 4 -------------------------------------------------------------
+# --- swallowed-header warning scoped to real section names -------------------
 #
 # The swallowed-header warning fired on any `##`-shaped line, including a
 # legitimate fenced code sample's own section divider or usage banner. Narrowed

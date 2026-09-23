@@ -1,4 +1,4 @@
-"""Regression tests for T-03 fix round one.
+"""Regression tests for T-03.
 
 Covers, in order: (1) add_concept and mark_stale_for_units must not leave a
 half-applied write behind on failure — verified by reopening the database, not
