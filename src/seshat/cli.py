@@ -40,7 +40,15 @@ from seshat.graph import Graph
 from seshat.ledger.models import Citation, Claim, Concept
 from seshat.ledger.store import Ledger
 from seshat.render import format_citation
-from seshat.scan import ClearFailed, IndexFailed, ScanOptions, clear_seshat_dir, print_clear_result, run_scan
+from seshat.scan import (
+    ClearFailed,
+    IndexFailed,
+    NoUnitsMatched,
+    ScanOptions,
+    clear_seshat_dir,
+    print_clear_result,
+    run_scan,
+)
 from seshat.scan import _default_indexer as indexer
 
 __all__ = ['answer_agent_factory', 'build_parser', 'indexer', 'main', 'reflect_after_scan', 'worker_factory']
@@ -122,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan_parser.add_argument(
         '--clear', action='store_true', help='wipe <repo>/.seshat/ before indexing, same as seshat clear'
     )
+    scan_parser.add_argument(
+        '--file',
+        dest='files',
+        action='append',
+        default=[],
+        help='restrict the queue to this file, relative to the repo root (repeatable)',
+    )
 
     clear_parser = subparsers.add_parser(
         'clear',
@@ -161,12 +176,45 @@ def build_parser() -> argparse.ArgumentParser:
 # -- scan ---------------------------------------------------------------------
 
 
+class _FileOutsideRepo(Exception):
+    """An absolute `--file` value is not inside the repo being scanned."""
+
+
+def _relative_to_repo(repo: Path, raw: str) -> str:
+    """Normalize one `--file` value to a repo-relative, forward-slash path.
+
+    An absolute path inside `repo` is made relative to it; anything already
+    relative is passed through as given (forward slashes, matching how
+    `enumerate_units` writes `Unit.file_path` — PT-02 Context). `repo` is
+    resolved the same way `run_scan` resolves it, so an absolute `--file`
+    compares against the same root `run_scan` will actually use.
+
+    Raises `_FileOutsideRepo` for an absolute path that is not inside
+    `repo` -- `Path.relative_to` raises a bare `ValueError` for that case,
+    which without this wrapper reached the CLI as an uncaught traceback and
+    exit 1 instead of a clean, bare message.
+    """
+    path = Path(raw)
+    if path.is_absolute():
+        try:
+            path = path.relative_to(repo.resolve())
+        except ValueError:
+            raise _FileOutsideRepo(f'--file {raw} is outside {repo}') from None
+    return path.as_posix()
+
+
 def _cmd_scan(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
 
     try:
         settings = Settings.load()
     except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    try:
+        files = tuple(_relative_to_repo(repo, raw) for raw in args.files)
+    except _FileOutsideRepo as exc:
         print(str(exc), file=sys.stderr)
         return 2
 
@@ -179,6 +227,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         full=args.full,
         model=args.model,
         clear=args.clear,
+        files=files,
     )
 
     factory = worker_factory(repo, settings)
@@ -187,6 +236,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     try:
         run = run_scan(repo, options, settings, worker_factory=factory, after_scan=after_scan, indexer=indexer)
     except IndexFailed as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except NoUnitsMatched as exc:
         print(str(exc), file=sys.stderr)
         return 2
     except Exception as exc:  # noqa: BLE001 -- a worker's own failure is not this CLI's to type-narrow

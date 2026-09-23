@@ -470,7 +470,7 @@ class UnitReport:
     tokens: int = 0
 
 
-def build_queue(ledger: Ledger, seed_names: set[str]) -> list[Unit]:
+def build_queue(ledger: Ledger, seed_names: set[str], files: tuple[str, ...] | None = None) -> list[Unit]:
     """Pending + changed units, ordered for a worker to pick up.
 
     Seeded units (named in `seed_names`, e.g. from a doc seed) come first;
@@ -478,8 +478,15 @@ def build_queue(ledger: Ledger, seed_names: set[str]) -> list[Unit]:
     confirmed before their callers; ties broken by `(file_path, start_line)`
     for a deterministic order. `scanned` and `vanished` units are excluded by
     construction — only `pending` and `changed` rows are ever fetched.
+
+    `files`, when given (PT-02, `scan --file`), restricts the result to units
+    whose `file_path` is in it — same sort order, just a narrower candidate
+    set. `None` (the default) means unfiltered, not "no files".
     """
     candidates = ledger.units(status='pending') + ledger.units(status='changed')
+    if files is not None:
+        file_set = set(files)
+        candidates = [u for u in candidates if u.file_path in file_set]
 
     def sort_key(unit: Unit) -> tuple[bool, int, str, int]:
         not_seeded = unit.qualified_name not in seed_names
