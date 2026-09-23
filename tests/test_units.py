@@ -770,3 +770,33 @@ def test_build_queue_orders_by_seed_then_inbound_calls_and_excludes_scanned_vani
     assert rest[0].id == render_receipt.id
     for later in rest[1:]:
         assert later.inbound_calls <= render_receipt.inbound_calls
+
+
+# -- PT-02: build_queue(files=...) restricts the queue to those files -------
+
+
+def test_build_queue_files_restricts_to_named_file(graph: Graph, ledger: Ledger, repo: Path) -> None:
+    run_id_1 = _new_run_id(ledger)
+    units = enumerate_units(graph, repo)
+    sync_units(ledger, units, run_id_1)
+
+    unfiltered = build_queue(ledger, set(), files=('demo/orders.py',))
+
+    assert unfiltered, 'expected at least one unit in demo/orders.py'
+    assert all(u.file_path == 'demo/orders.py' for u in unfiltered)
+
+    all_orders_units = [u for u in units if u.file_path == 'demo/orders.py']
+    assert {u.id for u in unfiltered} == {u.id for u in all_orders_units}
+
+    # Same order build_queue gives with no filter, just restricted to the file.
+    full_queue = build_queue(ledger, set())
+    expected_order = [u.id for u in full_queue if u.file_path == 'demo/orders.py']
+    assert [u.id for u in unfiltered] == expected_order
+
+
+def test_build_queue_files_none_is_unfiltered(graph: Graph, ledger: Ledger, repo: Path) -> None:
+    run_id_1 = _new_run_id(ledger)
+    units = enumerate_units(graph, repo)
+    sync_units(ledger, units, run_id_1)
+
+    assert build_queue(ledger, set(), files=None) == build_queue(ledger, set())

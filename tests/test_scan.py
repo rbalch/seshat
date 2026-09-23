@@ -28,7 +28,7 @@ from seshat.config import Settings
 from seshat.graph import Graph
 from seshat.ledger.models import Claim, Unit, Verifier
 from seshat.ledger.store import Ledger
-from seshat.scan import IndexFailed, Run, ScanOptions, run_scan
+from seshat.scan import IndexFailed, NoUnitsMatched, Run, ScanOptions, run_scan
 from seshat.units import UnitReport
 from seshat.verify import VerifierResult
 
@@ -741,6 +741,175 @@ def test_clear_seshat_dir_with_a_symlinked_subdir_does_not_delete_its_target(tmp
     assert outside_file.exists()
     assert outside_file.read_text() == 'keep me'
     assert not seshat_dir.exists()
+
+
+# -- PT-02: scan --file restricts the queue to the named files --------------
+
+
+def _units_by_file(ledger: Ledger, file_path: str) -> list[Unit]:
+    return [u for u in ledger.units() if u.file_path == file_path]
+
+
+def test_scan_file_scans_only_units_in_that_file(repo: Path, settings: Settings) -> None:
+    from seshat.memory import open_working_memory, seed_docs
+    from seshat.units import build_queue, enumerate_units, sync_units
+
+    with Graph.open(repo) as graph, Ledger.open(repo) as ledger:
+        run_id = ledger.create_run().id
+        seed_names = set(seed_docs(open_working_memory(repo), repo))
+        sync_units(ledger, enumerate_units(graph, repo), run_id)
+        expected_order = [u.id for u in build_queue(ledger, seed_names, files=('demo/orders.py',))]
+
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/orders.py',))
+    factory = SpyFactory()
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    scanned_names = {w._unit.qualified_name for w in factory.made}
+    scanned_files = {w._unit.file_path for w in factory.made}
+    assert scanned_files == {'demo/orders.py'}
+    assert [w._unit.id for w in factory.made] == expected_order
+
+    with Ledger.open(repo) as ledger:
+        orders_units = _units_by_file(ledger, 'demo/orders.py')
+        assert orders_units, 'expected at least one unit in demo/orders.py'
+        assert scanned_names == {u.qualified_name for u in orders_units}
+        assert all(u.status == 'scanned' for u in orders_units)
+
+
+def test_scan_file_second_run_on_unchanged_repo_rescans_same_units(repo: Path, settings: Settings) -> None:
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/orders.py',))
+
+    first_factory = SpyFactory()
+    first = run_scan(repo, options, settings, worker_factory=first_factory, indexer=_noop_indexer)
+    assert first.status == 'stopped_complete'
+    first_scanned = {w._unit.qualified_name for w in first_factory.made}
+    assert first_scanned
+
+    with Ledger.open(repo) as ledger:
+        other_files_status_before = {u.id: u.status for u in ledger.units() if u.file_path != 'demo/orders.py'}
+
+    second_factory = SpyFactory()
+    second = run_scan(repo, options, settings, worker_factory=second_factory, indexer=_noop_indexer)
+    assert second.status == 'stopped_complete'
+    second_scanned = {w._unit.qualified_name for w in second_factory.made}
+
+    assert second_scanned == first_scanned
+
+    with Ledger.open(repo) as ledger:
+        other_files_status_after = {u.id: u.status for u in ledger.units() if u.file_path != 'demo/orders.py'}
+    assert other_files_status_after == other_files_status_before
+
+
+def test_scan_file_two_files_scans_the_union(repo: Path, settings: Settings) -> None:
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/orders.py', 'demo/main.py'))
+    factory = SpyFactory()
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_complete'
+    scanned_files = {w._unit.file_path for w in factory.made}
+    assert scanned_files == {'demo/orders.py', 'demo/main.py'}
+
+
+def test_scan_file_no_match_raises_no_units_matched_before_any_worker(repo: Path, settings: Settings) -> None:
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/nope.py',))
+    factory = SpyFactory()
+
+    with pytest.raises(NoUnitsMatched, match=r'demo/nope\.py'):
+        run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert factory.made == []
+    with Ledger.open(repo) as ledger:
+        last = ledger.last_run()
+        assert last is not None
+        assert last.status == 'failed'
+
+
+def test_scan_file_with_units_budget_stops_after_exactly_one_unit(repo: Path, settings: Settings) -> None:
+    options = ScanOptions(units=1, minutes=10_000, tokens=10_000_000, files=('demo/orders.py',))
+    factory = SpyFactory()
+
+    run = run_scan(repo, options, settings, worker_factory=factory, indexer=_noop_indexer)
+
+    assert run.status == 'stopped_budget'
+    assert run.units_done == 1
+    assert len(factory.made) == 1
+    assert factory.made[0]._unit.file_path == 'demo/orders.py'
+
+
+# -- PT-02: a `NoUnitsMatched` --file list must not touch the ledger at all --
+# a good path in the same list as a bad one must not have its units flipped
+# to `changed`/stale before the bad path is even checked.
+
+
+def test_scan_file_no_units_matched_leaves_other_named_files_untouched(repo: Path, settings: Settings) -> None:
+    options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/orders.py',))
+    first = run_scan(repo, options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+    assert first.status == 'stopped_complete'
+
+    with Ledger.open(repo) as ledger:
+        before = {
+            u.id: (u.status, [c.status for c in ledger.claims_for_unit(u.id)])
+            for u in _units_by_file(ledger, 'demo/orders.py')
+        }
+    assert before, 'expected at least one demo/orders.py unit after the first scan'
+    assert all(status == 'scanned' for status, _ in before.values())
+
+    mixed_options = ScanOptions(
+        units=10_000, minutes=10_000, tokens=10_000_000, files=('demo/orders.py', 'demo/nope.py')
+    )
+    with pytest.raises(NoUnitsMatched, match=r'demo/nope\.py'):
+        run_scan(repo, mixed_options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+
+    with Ledger.open(repo) as ledger:
+        after = {
+            u.id: (u.status, [c.status for c in ledger.claims_for_unit(u.id)])
+            for u in _units_by_file(ledger, 'demo/orders.py')
+        }
+        last = ledger.last_run()
+        assert last is not None
+        assert last.status == 'failed'
+
+    assert after == before
+
+
+# -- PT-02: the force-rescan write must go through `upsert_unit`, not
+# `Ledger.set_unit_status` -- the latter stomps `last_scanned_run` to the
+# *current* run and cannot preserve `ast_hash`, exactly the bug
+# `sync_units`'s own docstring warns against reintroducing.
+
+
+def test_scan_file_force_rescan_preserves_last_scanned_run_and_ast_hash_when_worker_never_runs(
+    repo: Path, settings: Settings
+) -> None:
+    plain_options = ScanOptions(units=10_000, minutes=10_000, tokens=10_000_000)
+    first = run_scan(repo, plain_options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+    assert first.status == 'stopped_complete'
+
+    with Ledger.open(repo) as ledger:
+        before = {u.id: (u.last_scanned_run, u.ast_hash, u.status) for u in _units_by_file(ledger, 'demo/orders.py')}
+    assert before, 'expected at least one demo/orders.py unit after the first scan'
+    assert all(status == 'scanned' for _, _, status in before.values())
+    assert all(last_scanned_run == first.id for last_scanned_run, _, _ in before.values())
+
+    # units=0: the budget is exhausted before the pool ever pulls a unit off
+    # the queue, so the flip below is provably not the worker's own
+    # scanned-on-completion write (`seshat.agents.worker.run_unit`).
+    force_options = ScanOptions(units=0, minutes=10_000, tokens=10_000_000, files=('demo/orders.py',))
+    second = run_scan(repo, force_options, settings, worker_factory=SpyFactory(), indexer=_noop_indexer)
+    assert second.status == 'stopped_budget'
+    assert second.units_done == 0
+
+    with Ledger.open(repo) as ledger:
+        after = {u.id: (u.last_scanned_run, u.ast_hash, u.status) for u in _units_by_file(ledger, 'demo/orders.py')}
+
+    for unit_id, (last_scanned_run_before, ast_hash_before, _) in before.items():
+        last_scanned_run_after, ast_hash_after, status_after = after[unit_id]
+        assert status_after == 'changed'
+        assert last_scanned_run_after == last_scanned_run_before
+        assert ast_hash_after == ast_hash_before
 
 
 def test_scan_clear_option_wipes_previous_run_before_indexing(repo: Path, settings: Settings) -> None:

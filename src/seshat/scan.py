@@ -31,11 +31,30 @@ from seshat.memory import open_working_memory, seed_docs
 from seshat.units import build_queue, enumerate_units, sync_units, verifiers_to_rerun
 from seshat.verify import verify_and_record
 
-__all__ = ['ClearFailed', 'IndexFailed', 'Run', 'ScanOptions', 'clear_seshat_dir', 'print_clear_result', 'run_scan']
+__all__ = [
+    'ClearFailed',
+    'IndexFailed',
+    'NoUnitsMatched',
+    'Run',
+    'ScanOptions',
+    'clear_seshat_dir',
+    'print_clear_result',
+    'run_scan',
+]
 
 
 class IndexFailed(Exception):
     """Raised when `codegraph init`/`codegraph sync` exits non-zero."""
+
+
+class NoUnitsMatched(Exception):
+    """Raised when a `scan --file PATH` names a path with no unit in the ledger.
+
+    Raised before any worker runs (PT-02 scope item 4); `_cmd_scan` catches
+    this ahead of its generic `except Exception` handler, prints the message
+    bare, and exits 2 — the run row is still closed as `failed` first, the
+    same way any other exception mid-`run_scan` closes it.
+    """
 
 
 @dataclass(frozen=True)
@@ -55,6 +74,7 @@ class ScanOptions:
     full: bool = False
     model: str | None = None
     clear: bool = False
+    files: tuple[str, ...] = ()
 
 
 class ClearFailed(OSError):
@@ -233,6 +253,31 @@ def _unreadable_names_line(ledger: Ledger, unreadable_unit_ids: list[str]) -> st
     return line
 
 
+def _force_rescan_of_files(ledger: Ledger, files: tuple[str, ...], run_id: str) -> None:
+    """Rewrite every already-`scanned` unit in `files` to `changed` and mark
+    its claims stale (PT-02 scope item 2).
+
+    `--file` is meant to reach a unit whether or not it was scanned before,
+    so a unit already sitting at `status='scanned'` (nothing about its
+    `ast_hash` moved) needs to be pushed back into `build_queue`'s candidate
+    set some other way than `sync_units`'s drift check, which would never
+    touch it. `upsert_unit` (never `Ledger.set_unit_status` — see
+    `sync_units`'s docstring on why that call cannot be trusted for a status
+    transition: it cannot write `ast_hash`, and its `last_scanned_run` stomp
+    is the wrong shape here too) is the same write `sync_units` itself uses
+    to move an edited unit to `changed`, so this reuses it verbatim rather
+    than inventing a parallel "force" path. Units already `pending` or
+    `changed` are left alone -- they are already headed for the queue.
+    """
+    file_set = set(files)
+    targets = [unit for unit in ledger.units(status='scanned') if unit.file_path in file_set]
+    if not targets:
+        return
+    for unit in targets:
+        ledger.upsert_unit(replace(unit, status='changed'), run_id)
+    ledger.mark_stale_for_units([unit.id for unit in targets], run_id)
+
+
 def run_scan(
     repo: Path,
     options: ScanOptions,
@@ -309,8 +354,27 @@ def run_scan(
         for verifier in verifiers_to_rerun(ledger, diff, full=options.full):
             verify_and_record(ledger, verifier, graph, run.id)
 
+        # 4b. --file: validate every path against the ledger's known files
+        # *before* writing anything (PT-02) -- a `--file` list with one good
+        # path and one bad one must raise `NoUnitsMatched`
+        # having touched no ledger row at all, not after already flipping
+        # the good path's units to `changed` and marking their claims stale.
+        # Then force every already-`scanned` unit in a named file back to
+        # `changed` so it is rescanned even though nothing about it moved
+        # (PT-02 scope item 2) -- the same transition `sync_units` uses for an
+        # edited unit, reusing `upsert_unit`/`mark_stale_for_units` rather
+        # than `Ledger.set_unit_status` for the reason `sync_units`'
+        # docstring gives: `set_unit_status` cannot touch `ast_hash`, and is
+        # not the tool for moving a unit's status outside that function.
+        if options.files:
+            known_files = {unit.file_path for unit in ledger.units()}
+            unmatched = [path for path in options.files if path not in known_files]
+            if unmatched:
+                raise NoUnitsMatched(f'no units in {", ".join(unmatched)}')
+            _force_rescan_of_files(ledger, options.files, run.id)
+
         # 5. queue
-        queue = build_queue(ledger, seed_names)
+        queue = build_queue(ledger, seed_names, files=options.files or None)
 
         # 6-7. worker pool, driven under budget. `stats` is mutated in place
         # by `_drive_pool`/`worker_loop` as each unit finishes, so it still

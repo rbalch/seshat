@@ -269,6 +269,80 @@ def test_scan_stopped_budget_exits_zero(repo: Path, stubbed_scan: None, capsys: 
     assert 'stopped_budget' in out
 
 
+# -- PT-02: scan --file --------------------------------------------------
+
+
+def test_scan_file_flag_scans_only_the_named_file(
+    repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spy = SpyFactory()
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: spy)
+
+    exit_code = cli.main(['scan', str(repo), '--file', 'demo/orders.py', '--units', '1000'])
+
+    assert exit_code == 0
+    scanned_files = {w._unit.file_path for w in spy.made}
+    assert scanned_files == {'demo/orders.py'}
+
+
+def test_scan_file_flag_repeatable_scans_union(repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = SpyFactory()
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: spy)
+
+    exit_code = cli.main(['scan', str(repo), '--file', 'demo/orders.py', '--file', 'demo/main.py', '--units', '1000'])
+
+    assert exit_code == 0
+    scanned_files = {w._unit.file_path for w in spy.made}
+    assert scanned_files == {'demo/orders.py', 'demo/main.py'}
+
+
+def test_scan_file_flag_absolute_path_inside_repo_is_made_relative(
+    repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spy = SpyFactory()
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: spy)
+
+    absolute = str((repo / 'demo' / 'orders.py').resolve())
+    exit_code = cli.main(['scan', str(repo), '--file', absolute, '--units', '1000'])
+
+    assert exit_code == 0
+    scanned_files = {w._unit.file_path for w in spy.made}
+    assert scanned_files == {'demo/orders.py'}
+
+
+def test_scan_file_flag_no_match_exits_two_with_bare_message(
+    repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spy = SpyFactory()
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: spy)
+
+    exit_code = cli.main(['scan', str(repo), '--file', 'demo/nope.py'])
+
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert err.strip() == 'no units in demo/nope.py'
+    assert spy.made == []
+
+
+# -- PT-02: an absolute --file outside the repo must exit 2 with a bare
+# message, not an uncaught ValueError traceback and exit 1 ------------------
+
+
+def test_scan_file_flag_absolute_path_outside_repo_exits_two_with_bare_message(
+    repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    spy = SpyFactory()
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: spy)
+
+    outside = '/etc/passwd'
+    exit_code = cli.main(['scan', str(repo), '--file', outside])
+
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert err.strip() == f'--file {outside} is outside {repo}'
+    assert spy.made == []
+
+
 # -- bullet: status prints the run id and stopped_complete -------------------
 
 
