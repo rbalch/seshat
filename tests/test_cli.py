@@ -47,7 +47,7 @@ from seshat.ledger.models import Citation, Claim
 from seshat.ledger.store import Ledger
 from seshat.render import format_citation
 from seshat.scan import IndexFailed
-from tests.test_scan import SpyFactory
+from tests.test_scan import SlowFactory, SpyFactory
 
 # -- shared fixtures ----------------------------------------------------------
 
@@ -341,6 +341,51 @@ def test_scan_file_flag_absolute_path_outside_repo_exits_two_with_bare_message(
     err = capsys.readouterr().err
     assert err.strip() == f'--file {outside} is outside {repo}'
     assert spy.made == []
+
+
+# -- PT-03: scan --unit-timeout ----------------------------------------------
+
+
+def test_scan_unit_timeout_flag_reaches_scan_options_and_prints_timed_out(
+    repo: Path, stubbed_scan: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`--unit-timeout 0.05` against a worker that sleeps 0.5s abandons that
+    one unit: a `timeout after` line and a `timed_out=1` line reach stdout,
+    and the run still exits 0 (`stopped_complete`).
+    """
+    slow = SlowFactory(sleep_seconds=0.5, slow_for=1)
+    monkeypatch.setattr(cli, 'worker_factory', lambda repo, settings: slow)
+
+    exit_code = cli.main(
+        [
+            'scan',
+            str(repo),
+            '--unit-timeout',
+            '0.05',
+            '--units',
+            '1000',
+            '--minutes',
+            '1000',
+            '--tokens',
+            '100000000',
+        ]
+    )
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert 'timeout after' in out
+    assert out.count('timed_out=') == 1
+    assert 'timed_out=1' in out
+
+
+def test_scan_without_a_timed_out_unit_never_prints_timed_out(
+    repo: Path, stubbed_scan: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = _run_scan(repo)
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert 'timed_out=' not in out
 
 
 # -- bullet: status prints the run id and stopped_complete -------------------
